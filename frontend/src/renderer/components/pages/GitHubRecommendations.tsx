@@ -9,8 +9,9 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   XMarkIcon,
-  TrashIcon,
 } from "@heroicons/react/24/outline";
+import MarkdownIt from "markdown-it";
+import "github-markdown-css/github-markdown-light.css";
 import { api } from "../../services/api";
 import {
   usePersistedState,
@@ -20,7 +21,6 @@ import {
   getSearchResults,
   SearchResultData,
 } from "../../hooks/usePersistedState";
-import { formatNumber } from "../../utils/formatNumber";
 
 interface Repository {
   id: number;
@@ -60,13 +60,20 @@ export const GitHubRecommendations: React.FC = () => {
   });
   const [savedSearchResults, setSavedSearchResults] =
     useState<SearchResultData | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
+  // Markdown解析器
+  const md = new MarkdownIt({
+    html: true,
+    breaks: true,
+    linkify: true,
+  });
 
   // 组件挂载时检查保存的搜索结果
   useEffect(() => {
     const savedResults = getSearchResults(GITHUB_STORAGE_KEYS.SEARCH_RESULTS);
     if (savedResults) {
       setSavedSearchResults(savedResults);
-      toast.success("已恢复之前的搜索结果");
     }
   }, []);
 
@@ -79,7 +86,12 @@ export const GitHubRecommendations: React.FC = () => {
 
   // 基础搜索项目
   const searchMutation = useMutation({
-    mutationFn: (query: string) => api.searchGitHubRepos(query),
+    mutationFn: (query: string) => {
+      // 清除之前的搜索结果缓存
+      clearPersistedState(GITHUB_STORAGE_KEYS.SEARCH_RESULTS);
+      setSavedSearchResults(null);
+      return api.searchGitHubRepos(query);
+    },
     onSuccess: (data) => {
       toast.success(`找到 ${data.repositories.length} 个项目`);
       // 保存搜索结果
@@ -97,13 +109,17 @@ export const GitHubRecommendations: React.FC = () => {
 
   // 增强搜索项目
   const enhancedSearchMutation = useMutation({
-    mutationFn: () =>
-      api.enhancedSearchGitHubRepos(
+    mutationFn: () => {
+      // 清除之前的搜索结果缓存
+      clearPersistedState(GITHUB_STORAGE_KEYS.SEARCH_RESULTS);
+      setSavedSearchResults(null);
+      return api.enhancedSearchGitHubRepos(
         searchQuery,
         filters.language,
         filters.updatedAfter,
         filters.sort
-      ),
+      );
+    },
     onSuccess: (data) => {
       toast.success(`找到 ${data.repositories.length} 个项目`);
       // 记录用户搜索行为
@@ -126,7 +142,12 @@ export const GitHubRecommendations: React.FC = () => {
 
   // 获取个性化推荐
   const recommendationMutation = useMutation({
-    mutationFn: () => api.getGitHubRecommendations("default", 10),
+    mutationFn: () => {
+      // 清除之前的搜索结果缓存
+      clearPersistedState(GITHUB_STORAGE_KEYS.SEARCH_RESULTS);
+      setSavedSearchResults(null);
+      return api.getGitHubRecommendations("default", 10);
+    },
     onSuccess: (data) => {
       toast.success(`为您推荐了 ${data.repositories.length} 个项目`);
       // 保存推荐结果
@@ -148,9 +169,11 @@ export const GitHubRecommendations: React.FC = () => {
     onSuccess: (data) => {
       setSelectedRepo(data);
       setShowDetailModal(true);
+      setIsLoadingDetail(false);
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || "获取详情失败");
+      setIsLoadingDetail(false);
     },
   });
 
@@ -211,6 +234,7 @@ export const GitHubRecommendations: React.FC = () => {
     filters.language || filters.sort || filters.updatedAfter;
 
   const handleViewDetails = (repo: Repository) => {
+    setIsLoadingDetail(true);
     const [owner, repoName] = repo.full_name.split("/");
     detailMutation.mutate({ owner, repo: repoName });
   };
@@ -229,25 +253,6 @@ export const GitHubRecommendations: React.FC = () => {
     });
   };
 
-  // 清除所有保存的状态
-  const clearAllSavedState = () => {
-    clearPersistedState(GITHUB_STORAGE_KEYS.SEARCH_QUERY);
-    clearPersistedState(GITHUB_STORAGE_KEYS.FILTERS);
-    clearPersistedState(GITHUB_STORAGE_KEYS.SHOW_FILTERS);
-    clearPersistedState(GITHUB_STORAGE_KEYS.SEARCH_RESULTS);
-
-    setSearchQuery("");
-    setFilters({
-      language: "",
-      sort: "",
-      updatedAfter: "",
-    });
-    setShowFilters(false);
-    setSavedSearchResults(null);
-
-    toast.success("已清除所有保存的搜索状态");
-  };
-
   const repositories =
     recommendationMutation.data?.repositories ||
     enhancedSearchMutation.data?.repositories ||
@@ -255,6 +260,13 @@ export const GitHubRecommendations: React.FC = () => {
     savedSearchResults?.repositories ||
     trendingData?.repositories ||
     [];
+
+  const formatNumber = (num: number): string => {
+    if (num >= 1000) {
+      return (num / 1000).toFixed(1) + "k";
+    }
+    return num.toString();
+  };
 
   const formatDate = (dateString: string): string => {
     return new Date(dateString).toLocaleDateString("zh-CN");
@@ -297,14 +309,6 @@ export const GitHubRecommendations: React.FC = () => {
           <p className="mt-2 text-gray-600">发现热门的GitHub项目</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={clearAllSavedState}
-            className="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 flex items-center gap-2"
-            title="清除所有保存的搜索和筛选状态"
-          >
-            <TrashIcon className="h-4 w-4" />
-            清除状态
-          </button>
           <button
             onClick={() => recommendationMutation.mutate()}
             disabled={recommendationMutation.isPending}
@@ -555,9 +559,10 @@ export const GitHubRecommendations: React.FC = () => {
                 <div className="flex space-x-2">
                   <button
                     onClick={() => handleViewDetails(repo)}
-                    className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-md hover:bg-gray-200"
+                    disabled={isLoadingDetail}
+                    className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    查看详情
+                    {isLoadingDetail ? "加载中..." : "查看详情"}
                   </button>
                   <button
                     onClick={() => handleClone(repo)}
@@ -575,94 +580,145 @@ export const GitHubRecommendations: React.FC = () => {
       {/* 项目详情模态框 */}
       {showDetailModal && selectedRepo && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {selectedRepo.full_name}
-              </h2>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* 头部 */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center space-x-4">
+                <img
+                  src={selectedRepo.owner.avatar_url}
+                  alt={selectedRepo.owner.login}
+                  className="w-12 h-12 rounded-full"
+                />
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {selectedRepo.full_name}
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    {selectedRepo.owner.login}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setShowDetailModal(false)}
-                className="p-2 text-gray-400 hover:text-gray-600"
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
               >
-                ✕
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">
-                  项目信息
-                </h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Stars:</span>
-                    <span className="font-medium">
-                      {formatNumber(selectedRepo.stargazers_count)}
-                    </span>
+            {/* 内容区域 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* 项目统计信息 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="bg-blue-50 rounded-lg p-4 text-center">
+                  <StarIcon className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                  <div className="text-2xl font-bold text-blue-900">
+                    {formatNumber(selectedRepo.stargazers_count)}
                   </div>
-                  <div className="flex justify-between">
-                    <span>Forks:</span>
-                    <span className="font-medium">
-                      {formatNumber(selectedRepo.forks_count)}
-                    </span>
+                  <div className="text-sm text-blue-600">Stars</div>
+                </div>
+                <div className="bg-green-50 rounded-lg p-4 text-center">
+                  <span className="text-2xl mb-2">🍴</span>
+                  <div className="text-2xl font-bold text-green-900">
+                    {formatNumber(selectedRepo.forks_count)}
                   </div>
-                  <div className="flex justify-between">
-                    <span>Watchers:</span>
-                    <span className="font-medium">
-                      {formatNumber(selectedRepo.watchers_count)}
-                    </span>
+                  <div className="text-sm text-green-600">Forks</div>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-4 text-center">
+                  <span className="text-2xl mb-2">👁️</span>
+                  <div className="text-2xl font-bold text-purple-900">
+                    {formatNumber(selectedRepo.watchers_count)}
                   </div>
-                  <div className="flex justify-between">
-                    <span>语言:</span>
-                    <span className="font-medium">
-                      {selectedRepo.language || "未知"}
-                    </span>
+                  <div className="text-sm text-purple-600">Watchers</div>
+                </div>
+                <div className="bg-orange-50 rounded-lg p-4 text-center">
+                  <CodeBracketIcon className="w-6 h-6 text-orange-600 mx-auto mb-2" />
+                  <div className="text-xl font-bold text-orange-900">
+                    {selectedRepo.language || "未知"}
                   </div>
+                  <div className="text-sm text-orange-600">语言</div>
                 </div>
               </div>
 
-              <div className="md:col-span-2">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">描述</h3>
-                <p className="text-gray-600">
-                  {selectedRepo.description || "无描述"}
-                </p>
+              {/* 项目描述 */}
+              {selectedRepo.description && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    项目描述
+                  </h3>
+                  <p className="text-gray-700 leading-relaxed bg-gray-50 rounded-lg p-4">
+                    {selectedRepo.description}
+                  </p>
+                </div>
+              )}
+
+              {/* README内容 */}
+              {selectedRepo.readme && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    README
+                  </h3>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div
+                      className="markdown-body p-6 bg-white"
+                      dangerouslySetInnerHTML={{
+                        __html: md.render(selectedRepo.readme),
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 更新时间 */}
+              <div className="mt-6 flex items-center text-sm text-gray-500">
+                <CalendarIcon className="w-4 h-4 mr-2" />
+                最后更新: {formatDate(selectedRepo.updated_at)}
               </div>
             </div>
 
-            {selectedRepo.readme && (
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-2">
-                  README
-                </h3>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <pre className="text-sm text-gray-800 whitespace-pre-wrap">
-                    {selectedRepo.readme}
-                  </pre>
-                </div>
+            {/* 底部操作按钮 */}
+            <div className="border-t border-gray-200 p-6 bg-gray-50">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <a
+                  href={selectedRepo.html_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-center font-medium flex items-center justify-center"
+                >
+                  <svg
+                    className="w-5 h-5 mr-2"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                  </svg>
+                  在GitHub上查看
+                </a>
+                <button
+                  onClick={() => handleClone(selectedRepo)}
+                  className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  克隆项目
+                </button>
+                <button
+                  onClick={() => setShowDetailModal(false)}
+                  className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+                >
+                  关闭
+                </button>
               </div>
-            )}
-
-            <div className="flex space-x-3 mt-6">
-              <a
-                href={selectedRepo.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                在GitHub上查看
-              </a>
-              <button
-                onClick={() => handleClone(selectedRepo)}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-              >
-                克隆项目
-              </button>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-              >
-                关闭
-              </button>
             </div>
           </div>
         </div>

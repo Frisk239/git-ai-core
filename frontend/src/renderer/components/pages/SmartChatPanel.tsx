@@ -331,7 +331,7 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
         {toolCalls.map((toolCall) => (
           <div
             key={toolCall.id}
-            className="bg-gradient-to-r from-gray-50 to-slate-50 border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow"
+            className="bg-gradient-to-r from-gray-50 to-slate-50 border border-gray-200 rounded-lg p-3 shadow hover:shadow-sm transition-shadow"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-3">

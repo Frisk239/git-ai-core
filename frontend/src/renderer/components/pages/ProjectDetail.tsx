@@ -14,9 +14,10 @@ import {
   ChevronRightIcon,
   CodeBracketIcon,
   UserIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../../services/api";
-import { FileViewer } from "../FileViewer";
+import { FileViewer } from "./FileViewer";
 import { SmartChatPanel } from "./SmartChatPanel";
 
 interface Project {
@@ -279,6 +280,45 @@ export const ProjectDetail: React.FC = () => {
     setPreviewFile({ path: filePath, content });
   };
 
+  // 文件搜索状态
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<string[]>([]);
+
+  // 搜索文件
+  const searchFiles = (
+    node: FileTreeNode,
+    term: string,
+    currentPath = ""
+  ): string[] => {
+    if (!term.trim()) return [];
+
+    const results: string[] = [];
+    const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
+
+    // 检查当前节点是否匹配
+    if (node.name.toLowerCase().includes(term.toLowerCase())) {
+      results.push(fullPath);
+    }
+
+    // 递归搜索子节点
+    if (node.type === "directory" && node.children) {
+      for (const child of node.children) {
+        results.push(...searchFiles(child, term, fullPath));
+      }
+    }
+
+    return results;
+  };
+
+  // 处理搜索输入变化
+  const handleSearchChange = (term: string) => {
+    setSearchTerm(term);
+    if (project?.file_tree) {
+      const results = searchFiles(project.file_tree, term);
+      setSearchResults(results);
+    }
+  };
+
   // 关闭文件预览
   const handleClosePreview = () => {
     setPreviewFile(null);
@@ -359,17 +399,6 @@ export const ProjectDetail: React.FC = () => {
   if (selectedFile && fileContent) {
     return (
       <div className="p-6">
-        <div className="mb-4">
-          <button
-            onClick={() => {
-              setSelectedFile(null);
-              setFileContent(null);
-            }}
-            className="text-blue-600 hover:text-blue-800 text-sm"
-          >
-            ← 返回文件列表
-          </button>
-        </div>
         <FileViewer
           fileName={selectedFile.split("/").pop() || ""}
           fileContent={fileContent}
@@ -669,13 +698,58 @@ export const ProjectDetail: React.FC = () => {
                 文件结构
               </h2>
             </div>
+
+            {/* 文件搜索框 */}
+            <div className="mb-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="搜索文件..."
+                  value={searchTerm}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
+                />
+                <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+              </div>
+
+              {/* 搜索结果 */}
+              {searchTerm && searchResults.length > 0 && (
+                <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-xs text-green-700 mb-1">
+                    找到 {searchResults.length} 个匹配文件:
+                  </p>
+                  <div className="space-y-1">
+                    {searchResults.slice(0, 5).map((result) => (
+                      <div
+                        key={result}
+                        className="px-2 py-1 text-sm text-green-800 hover:bg-green-100 rounded cursor-pointer transition-colors"
+                        onClick={() => handleFileClick(result)}
+                      >
+                        {result}
+                      </div>
+                    ))}
+                    {searchResults.length > 5 && (
+                      <p className="text-xs text-green-600 italic">
+                        还有 {searchResults.length - 5} 个文件...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {searchTerm && searchResults.length === 0 && (
+                <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-xs text-gray-600">未找到匹配的文件</p>
+                </div>
+              )}
+            </div>
             {isLoadingFile && (
               <div className="flex justify-center items-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
                 <span className="ml-3 text-gray-600">加载文件结构...</span>
               </div>
             )}
-            <div className="border border-gray-200 rounded-lg p-4 max-h-[600px] overflow-y-auto hover:border-gray-300 transition-colors">
+            <div className="border border-gray-200 rounded-lg p-4 h-[calc(100vh-300px)] min-h-[400px] overflow-y-auto hover:border-gray-300 transition-colors">
               {project?.file_tree && renderFileTree(project.file_tree)}
             </div>
           </div>
@@ -866,7 +940,7 @@ export const ProjectDetail: React.FC = () => {
                           分析结果
                         </h3>
                       </div>
-                      <div className="bg-white/40 rounded-xl p-4 h-[calc(100%-60px)] overflow-y-auto border border-blue-100/50">
+                      <div className="bg-white/40 rounded-xl p-4 h-[calc(100vh-500px)] min-h-[300px] overflow-y-auto border border-blue-100/50">
                         <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
                           {analysisResult}
                         </div>
@@ -876,7 +950,7 @@ export const ProjectDetail: React.FC = () => {
                 </div>
               ) : (
                 <div className="h-full flex flex-col">
-                  <div className="flex-1 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 rounded-xl p-6 backdrop-blur-sm border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 overflow-hidden max-h-[800px]">
+                  <div className="flex-1 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 rounded-xl p-6 backdrop-blur-sm border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 overflow-hidden h-[calc(100vh-280px)]">
                     <SmartChatPanel
                       projectPath={decodedPath}
                       fileTree={project?.file_tree}

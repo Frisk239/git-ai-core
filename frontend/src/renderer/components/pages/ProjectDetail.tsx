@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
@@ -12,6 +12,7 @@ import {
   LightBulbIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CodeBracketIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../../services/api";
 import { FileViewer } from "../FileViewer";
@@ -68,6 +69,7 @@ export const ProjectDetail: React.FC = () => {
   const [expandedFolders, setExpandedFolders] = useState<
     Record<string, boolean>
   >({});
+
   // 一键触发功能状态
   const [isGeneratingArchitecture, setIsGeneratingArchitecture] =
     useState(false);
@@ -90,6 +92,23 @@ export const ProjectDetail: React.FC = () => {
     queryFn: () => api.getProjectOverview(decodedPath),
     enabled: !!decodedPath,
   });
+
+  // 初始化时展开一级文件夹
+  useEffect(() => {
+    if (
+      project?.file_tree &&
+      project.file_tree.type === "directory" &&
+      project.file_tree.children
+    ) {
+      const initialExpanded: Record<string, boolean> = {};
+      project.file_tree.children.forEach((child) => {
+        if (child.type === "directory") {
+          initialExpanded[child.name] = true;
+        }
+      });
+      setExpandedFolders(initialExpanded);
+    }
+  }, [project?.file_tree]);
 
   const handleAnalyze = async () => {
     if (!analysisQuery.trim()) {
@@ -270,14 +289,16 @@ export const ProjectDetail: React.FC = () => {
       return (
         <div
           key={fullPath}
-          className="flex items-center py-2 px-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors duration-150"
+          className={`flex items-center py-2 px-3 rounded cursor-pointer transition-colors ${
+            selectedFile === fullPath
+              ? "bg-blue-100 border-l-4 border-blue-500"
+              : "hover:bg-gray-100"
+          }`}
           style={{ paddingLeft: indent + 8 }}
           onClick={() => handleFileClick(fullPath)}
         >
-          <DocumentTextIcon className="h-4 w-4 text-gray-400 mr-2 flex-shrink-0" />
-          <span className="text-sm text-gray-700 hover:text-blue-600 truncate">
-            {node.name}
-          </span>
+          <DocumentTextIcon className="h-4 w-4 mr-2 text-blue-600" />
+          <span className="text-sm text-gray-800 truncate">{node.name}</span>
         </div>
       );
     }
@@ -285,24 +306,27 @@ export const ProjectDetail: React.FC = () => {
     return (
       <div key={fullPath}>
         <div
-          className="flex items-center py-2 px-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors duration-150"
+          className={`flex items-center py-2 px-3 rounded cursor-pointer transition-colors ${
+            isExpanded ? "bg-gray-100" : "hover:bg-gray-100"
+          }`}
           style={{ paddingLeft: indent + 8 }}
           onClick={() => handleFolderClick(fullPath)}
         >
           {isExpanded ? (
-            <ChevronDownIcon className="h-4 w-4 text-gray-500 mr-1 flex-shrink-0" />
+            <ChevronDownIcon className="h-4 w-4 mr-2 text-gray-600" />
           ) : (
-            <ChevronRightIcon className="h-4 w-4 text-gray-500 mr-1 flex-shrink-0" />
+            <ChevronRightIcon className="h-4 w-4 mr-2 text-gray-600" />
           )}
-          <FolderIcon className="h-4 w-4 text-blue-500 mr-2 flex-shrink-0" />
-          <span className="text-sm font-medium text-gray-700 truncate">
-            {node.name}
-          </span>
+          <FolderIcon className="h-4 w-4 mr-2 text-yellow-600" />
+          <span className="text-sm text-gray-800 truncate">{node.name}</span>
         </div>
-        {isExpanded &&
-          node.children?.map((child) =>
-            renderFileTree(child, level + 1, fullPath)
-          )}
+        {isExpanded && (
+          <div className="ml-2 border-l border-gray-200 pl-2">
+            {node.children?.map((child) =>
+              renderFileTree(child, level + 1, fullPath)
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -387,61 +411,169 @@ export const ProjectDetail: React.FC = () => {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            {project.info?.name}
-          </h1>
-          <p className="mt-1 text-gray-600">{project.info?.path}</p>
+      <div className="mb-8 bg-white rounded-xl shadow border border-gray-100 overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center mb-4 lg:mb-0">
+              <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center mr-4">
+                <FolderIcon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-white">
+                  {project.info?.name}
+                </h1>
+                <p className="text-blue-100 text-sm">{project.info?.path}</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleUpdateRepository}
+                disabled={isUpdating}
+                className="flex items-center px-4 py-2 bg-white text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg border border-blue-200"
+              >
+                {isUpdating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                    更新中...
+                  </>
+                ) : (
+                  <>
+                    <ArrowPathIcon className="h-4 w-4 mr-2" />
+                    更新仓库
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isDeleting}
+                className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg border border-red-400"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    删除中...
+                  </>
+                ) : (
+                  <>
+                    <TrashIcon className="h-4 w-4 mr-2" />
+                    删除项目
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="flex space-x-3">
-          <button
-            onClick={handleUpdateRepository}
-            disabled={isUpdating}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <ArrowPathIcon className="h-4 w-4 mr-2" />
-            {isUpdating ? "更新中..." : "更新仓库"}
-          </button>
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            disabled={isDeleting}
-            className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <TrashIcon className="h-4 w-4 mr-2" />
-            {isDeleting ? "删除中..." : "删除项目"}
-          </button>
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-center mb-2">
+                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center mr-2">
+                  <FolderIcon className="h-4 w-4 text-white" />
+                </div>
+                <p className="text-sm font-medium text-blue-800">仓库名称</p>
+              </div>
+              <p className="text-lg font-bold text-blue-900 truncate">
+                {project.info?.name}
+              </p>
+            </div>
+
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+              <div className="flex items-center mb-2">
+                <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center mr-2">
+                  <CodeBracketIcon className="h-4 w-4 text-white" />
+                </div>
+                <p className="text-sm font-medium text-green-800">当前分支</p>
+              </div>
+              <p className="text-lg font-bold text-green-900">
+                {project.info?.current_branch}
+              </p>
+            </div>
+
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+              <div className="flex items-center mb-2">
+                <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center mr-2">
+                  <DocumentChartBarIcon className="h-4 w-4 text-white" />
+                </div>
+                <p className="text-sm font-medium text-purple-800">提交数量</p>
+              </div>
+              <p className="text-lg font-bold text-purple-900">
+                {project.info?.commits_count}
+              </p>
+            </div>
+
+            <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4 border border-orange-200">
+              <div className="flex items-center mb-2">
+                <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center mr-2">
+                  <ArrowPathIcon className="h-4 w-4 text-white" />
+                </div>
+                <p className="text-sm font-medium text-orange-800">远程仓库</p>
+              </div>
+              <a
+                href={project.info?.remote_url || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-lg font-bold text-orange-900 hover:text-orange-700 hover:underline transition-colors duration-200 overflow-hidden whitespace-nowrap text-ellipsis block"
+                title={project.info?.remote_url || "无"}
+              >
+                {project.info?.remote_url || "无"}
+              </a>
+            </div>
+          </div>
         </div>
       </div>
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">确认删除项目</h3>
-            <p className="text-gray-600 mb-4">
-              确定要删除 <span className="font-bold">{project.info?.name}</span>{" "}
-              吗？
-            </p>
-            <p className="text-sm text-gray-500 mb-6">
-              这将同时删除：
-              <br />• 数据库中的记录
-              <br />• 本地文件夹
-              <br />• 此操作不可撤销
-            </p>
-            <div className="flex justify-end space-x-3">
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4 border border-gray-200">
+            <div className="flex items-center mb-4">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mr-3">
+                <TrashIcon className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  确认删除项目
+                </h3>
+                <p className="text-sm text-gray-500">此操作不可撤销</p>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-gray-700 mb-2">
+                确定要删除{" "}
+                <span className="font-semibold text-red-700">
+                  {project.info?.name}
+                </span>{" "}
+                吗？
+              </p>
+              <div className="text-sm text-gray-600 space-y-1">
+                <p>• 数据库记录将被永久删除</p>
+                <p>• 本地文件夹将被删除</p>
+                <p>• 此操作不可撤销</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors duration-200"
               >
                 取消
               </button>
               <button
                 onClick={handleDeleteProject}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors duration-200 flex items-center"
               >
-                确认删除
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    删除中...
+                  </>
+                ) : (
+                  "确认删除"
+                )}
               </button>
             </div>
           </div>
@@ -450,46 +582,32 @@ export const ProjectDetail: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">项目信息</h2>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="font-medium">仓库:</span> {project.info?.name}
-              </div>
-              <div>
-                <span className="font-medium">分支:</span>{" "}
-                {project.info?.current_branch}
-              </div>
-              <div>
-                <span className="font-medium">提交数:</span>{" "}
-                {project.info?.commits_count}
-              </div>
-              <div>
-                <span className="font-medium">远程:</span>{" "}
-                {project.info?.remote_url || "无"}
-              </div>
+          <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-4">
+              <DocumentTextIcon className="h-6 w-6 text-green-600 mr-2" />
+              <h2 className="text-xl font-bold text-gray-900">文件结构</h2>
             </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">文件结构</h2>
             {isLoadingFile && (
-              <div className="flex justify-center items-center py-4">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-3 text-gray-600">加载文件结构...</span>
               </div>
             )}
-            <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
+            <div className="border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto hover:border-gray-300 transition-colors">
               {project?.file_tree && renderFileTree(project.file_tree)}
             </div>
           </div>
 
           {analysisMode === "simple" ? (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-300 p-6 border border-gray-100">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">AI分析</h2>
+                <div className="flex items-center">
+                  <LightBulbIcon className="h-6 w-6 text-yellow-500 mr-2" />
+                  <h2 className="text-xl font-bold text-gray-900">AI分析</h2>
+                </div>
                 <button
                   onClick={() => setAnalysisMode("smart")}
-                  className="flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-sm"
+                  className="flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 text-sm shadow-md hover:shadow-lg"
                 >
                   <LightBulbIcon className="h-4 w-4 mr-1" />
                   切换到智能对话
@@ -504,7 +622,7 @@ export const ProjectDetail: React.FC = () => {
                     value={analysisQuery}
                     onChange={(e) => setAnalysisQuery(e.target.value)}
                     placeholder="例如：这个项目的主要目的是什么？代码是如何组织的？"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                     rows={3}
                   />
                 </div>
@@ -512,17 +630,25 @@ export const ProjectDetail: React.FC = () => {
                 <button
                   onClick={handleAnalyze}
                   disabled={isAnalyzing}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center"
                 >
-                  {isAnalyzing ? "分析中..." : "分析"}
+                  {isAnalyzing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      分析中...
+                    </>
+                  ) : (
+                    "开始分析"
+                  )}
                 </button>
 
                 {analysisResult && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                    <h3 className="text-sm font-medium text-gray-900 mb-2">
+                  <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                    <h3 className="text-sm font-bold text-blue-900 mb-2 flex items-center">
+                      <LightBulbIcon className="h-4 w-4 mr-1" />
                       分析结果
                     </h3>
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
                       {analysisResult}
                     </div>
                   </div>
@@ -530,20 +656,23 @@ export const ProjectDetail: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-300 p-6 border border-gray-100">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center">
-                  <ChatBubbleLeftRightIcon className="h-5 w-5 mr-2 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-900 flex items-center">
+                  <ChatBubbleLeftRightIcon className="h-6 w-6 mr-2 text-purple-600" />
                   智能对话分析
                 </h2>
                 <button
                   onClick={() => setAnalysisMode("simple")}
-                  className="flex items-center px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+                  className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 text-sm"
                 >
                   ← 返回简单分析
                 </button>
               </div>
-              <div className="border rounded-lg" style={{ height: "400px" }}>
+              <div
+                className="border-2 border-gray-200 rounded-lg hover:border-purple-300 transition-colors duration-200"
+                style={{ height: "400px" }}
+              >
                 <SmartChatPanel
                   projectPath={decodedPath}
                   fileTree={project?.file_tree}
@@ -556,70 +685,100 @@ export const ProjectDetail: React.FC = () => {
 
         <div className="space-y-6">
           {/* 一键触发功能 */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">一键功能</h2>
+          <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-4">
+              <DocumentChartBarIcon className="h-6 w-6 text-green-600 mr-2" />
+              <h2 className="text-xl font-bold text-gray-900">一键功能</h2>
+            </div>
             <div className="space-y-3">
               <button
                 onClick={handleGenerateArchitecture}
                 disabled={isGeneratingArchitecture}
-                className="w-full flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:opacity-50 transition-all duration-200 shadow-md hover:shadow-lg"
               >
-                <DocumentChartBarIcon className="h-4 w-4 mr-2" />
-                {isGeneratingArchitecture ? "生成中..." : "生成架构文档"}
+                {isGeneratingArchitecture ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <DocumentChartBarIcon className="h-5 w-5 mr-2" />
+                    生成架构文档
+                  </>
+                )}
               </button>
             </div>
 
             {architectureResult && (
-              <div className="mt-4 p-3 bg-green-50 rounded-lg">
-                <h3 className="text-sm font-medium text-green-900 mb-1">
+              <div className="mt-4 p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg border border-green-200">
+                <h3 className="text-sm font-bold text-green-900 mb-2 flex items-center">
+                  <DocumentChartBarIcon className="h-4 w-4 mr-1" />
                   架构文档结果
                 </h3>
-                <div className="text-sm text-green-700 whitespace-pre-wrap">
+                <div className="text-sm text-green-700 whitespace-pre-wrap leading-relaxed">
                   {architectureResult}
                 </div>
               </div>
             )}
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">最近提交</h2>
+          <div className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-4">
+              <ArrowPathIcon className="h-6 w-6 text-blue-600 mr-2" />
+              <h2 className="text-xl font-bold text-gray-900">最近提交</h2>
+            </div>
             <div className="space-y-3">
               {project.recent_commits?.slice(0, 5).map((commit) => (
                 <div
                   key={commit.hash}
-                  className="border-l-4 border-blue-500 pl-3"
+                  className="bg-gray-50 rounded-lg p-3 hover:bg-gray-100 transition-colors duration-200 border-l-4 border-blue-500"
                 >
-                  <p className="text-sm font-medium text-gray-900">
+                  <p className="text-sm font-medium text-gray-900 mb-1">
                     {commit.message}
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {commit.author} •{" "}
-                    {new Date(commit.date).toLocaleDateString()}
-                  </p>
+                  <div className="flex items-center text-xs text-gray-500">
+                    <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded-full mr-2">
+                      {commit.author}
+                    </span>
+                    <span>•</span>
+                    <span className="ml-2">
+                      {new Date(commit.date).toLocaleDateString()}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">分支</h2>
-            <div className="space-y-2">
+          <div className="bg-white rounded-lg shadow hover:shadow-xl transition-shadow duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-4">
+              <CodeBracketIcon className="h-6 w-6 text-purple-600 mr-2" />
+              <h2 className="text-xl font-bold text-gray-900">分支</h2>
+            </div>
+            <div className="space-y-3">
               {project.branches?.map((branch) => (
                 <div
                   key={branch.name}
-                  className="flex items-center justify-between"
+                  className={`flex items-center justify-between p-3 rounded-lg transition-all duration-200 ${
+                    branch.is_active
+                      ? "bg-gradient-to-r from-purple-50 to-blue-50 border-l-4 border-purple-500 shadow-sm"
+                      : "bg-gray-50 hover:bg-gray-100"
+                  }`}
                 >
-                  <span
-                    className={`text-sm ${
-                      branch.is_active
-                        ? "font-bold text-blue-600"
-                        : "text-gray-700"
-                    }`}
-                  >
-                    {branch.name}
-                  </span>
+                  <div className="flex items-center">
+                    <CodeBracketIcon className="h-4 w-4 mr-2 text-gray-600" />
+                    <span
+                      className={`text-sm font-medium ${
+                        branch.is_active ? "text-purple-700" : "text-gray-700"
+                      }`}
+                    >
+                      {branch.name}
+                    </span>
+                  </div>
                   {branch.is_active && (
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                    <span className="inline-flex items-center px-3 py-1 bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-medium rounded-full shadow-sm">
+                      <div className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></div>
                       活跃
                     </span>
                   )}

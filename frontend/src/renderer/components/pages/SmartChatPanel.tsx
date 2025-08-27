@@ -9,6 +9,8 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   SparklesIcon,
+  PlusIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../../services/api";
 import ReactMarkdown from "react-markdown";
@@ -150,6 +152,29 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
     },
     [projectPath]
   );
+
+  // 清除当前对话
+  const clearConversation = () => {
+    try {
+      const storageKey = `git-ai-chat-${projectPath}`;
+      sessionStorage.removeItem(storageKey);
+
+      setMessages([]);
+      setConversationId("");
+      setIsInitialized(false);
+
+      toast.success("对话已清除");
+    } catch (error) {
+      console.error("清除对话失败:", error);
+      toast.error("清除对话失败");
+    }
+  };
+
+  // 新建对话
+  const newConversation = async () => {
+    clearConversation();
+    await initializeConversation();
+  };
 
   const [messages, setMessages] = useState<Message[]>(() => {
     const state = loadConversationState();
@@ -393,39 +418,71 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-transparent">
+      {/* 标题栏 - 包含新建对话和清除对话按钮 */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white/50 backdrop-blur-sm">
+        <div className="flex items-center space-x-2">
+          <SparklesIcon className="w-5 h-5 text-blue-600" />
+          <h3 className="text-sm font-semibold text-gray-800">智能对话</h3>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={newConversation}
+            className="flex items-center space-x-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
+            title="新建对话"
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span>新建</span>
+          </button>
+          {messages.length > 0 && (
+            <button
+              onClick={clearConversation}
+              className="flex items-center space-x-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
+              title="清除对话"
+            >
+              <TrashIcon className="w-4 h-4" />
+              <span>清除</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 聊天消息区域 */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && !isInitialized && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-600">
-            <div className="relative mb-6">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
-              <div className="relative bg-gradient-to-r from-blue-500 to-purple-600 p-4 rounded-full shadow-lg">
-                <SparklesIcon className="w-16 h-16 text-white" />
+          <div className="flex flex-col items-center justify-center h-full text-gray-600 p-6">
+            <div className="text-center max-w-md">
+              <SparklesIcon className="w-16 h-16 text-blue-400 mx-auto mb-6" />
+              <h3 className="text-xl font-semibold text-gray-800 mb-4">
+                开始智能对话
+              </h3>
+              <p className="text-gray-600 mb-6">
+                我可以帮助您分析代码、回答技术问题、生成代码片段等。
+                点击下方按钮开始对话吧！
+              </p>
+              <button
+                onClick={initializeConversation}
+                className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mx-auto"
+              >
+                <PlusIcon className="w-5 h-5" />
+                <span>开始对话</span>
+              </button>
+            </div>
+          </div>
+        )}
+        {messages.length === 0 && isInitialized && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-600 p-6">
+            <div className="text-center max-w-md">
+              <SparklesIcon className="w-12 h-12 text-blue-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-800 mb-3">
+                对话已准备就绪
+              </h3>
+              <p className="text-gray-600 mb-4">
+                请输入您的问题或指令，我将为您提供帮助。
+              </p>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                💡 提示：您可以询问代码相关问题、请求代码分析或生成代码片段
               </div>
             </div>
-            <h3 className="text-xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              智能项目分析助手
-            </h3>
-            <p className="text-sm text-center mb-6 text-gray-600 max-w-md">
-              点击下方按钮初始化智能对话，我将帮您分析项目架构、理解代码结构并提供专业建议
-            </p>
-            <button
-              onClick={initializeConversation}
-              disabled={isLoading}
-              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-6 py-3 rounded-xl font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <div className="flex items-center space-x-2">
-                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                  <span>初始化中...</span>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-2">
-                  <SparklesIcon className="w-4 h-4" />
-                  <span>开始对话</span>
-                </div>
-              )}
-            </button>
           </div>
         )}
 

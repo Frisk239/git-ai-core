@@ -2,24 +2,19 @@
   "name": "git-ai-core",
   "version": "1.0.0",
   "description": "AI-powered Git project understanding assistant",
-  "main": "dist/main.js",
+  "main": "main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && python -m uvicorn app.main:app --reload --port 8000",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && python -m pip install -r requirements.txt",
-    "start": "electron dist/main.js",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "build:backend": "cd backend && python -m pip install -r requirements.txt"
   },
   "keywords": ["git", "ai", "mcp", "project-understanding"],
   "author": "Git AI Core Team",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
     "concurrently": "^8.2.2"
   }
 }

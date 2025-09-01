@@ -6,6 +6,7 @@ import anthropic
 import google.generativeai as genai
 import httpx
 from app.core.config import settings
+from app.core.ai_config_manager import ai_config_manager
 
 class AIProvider(ABC):
     """抽象AI供应商接口"""
@@ -28,7 +29,10 @@ class OpenAIProvider(AIProvider):
             model=model,
             messages=messages,
             temperature=kwargs.get('temperature', 0.7),
-            max_tokens=kwargs.get('max_tokens', 2000)
+            max_tokens=kwargs.get('max_tokens', 2000),
+            top_p=kwargs.get('top_p', 1.0),
+            frequency_penalty=kwargs.get('frequency_penalty', 0.0),
+            presence_penalty=kwargs.get('presence_penalty', 0.0)
         )
         
         return {
@@ -141,7 +145,10 @@ class DeepSeekProvider(AIProvider):
             model=model,
             messages=messages,
             temperature=kwargs.get('temperature', 0.7),
-            max_tokens=kwargs.get('max_tokens', 2000)
+            max_tokens=kwargs.get('max_tokens', 2000),
+            top_p=kwargs.get('top_p', 1.0),
+            frequency_penalty=kwargs.get('frequency_penalty', 0.0),
+            presence_penalty=kwargs.get('presence_penalty', 0.0)
         )
         
         return {
@@ -184,7 +191,10 @@ class MoonshotProvider(AIProvider):
             model=model,
             messages=messages,
             temperature=kwargs.get('temperature', 0.7),
-            max_tokens=kwargs.get('max_tokens', 2000)
+            max_tokens=kwargs.get('max_tokens', 2000),
+            top_p=kwargs.get('top_p', 1.0),
+            frequency_penalty=kwargs.get('frequency_penalty', 0.0),
+            presence_penalty=kwargs.get('presence_penalty', 0.0)
         )
 
         return {
@@ -271,6 +281,10 @@ class AIManager:
     def get_available_providers(self) -> Dict[str, Dict[str, Any]]:
         """获取所有可用供应商"""
         return self.provider_configs
+    
+    def get_default_ai_params(self) -> Dict[str, Any]:
+        """获取默认的AI参数"""
+        return ai_config_manager.get_ai_params()
     
     async def chat(self, provider: str, model: str, messages: List[Dict[str, str]], 
                    api_key: str, **kwargs) -> Dict[str, Any]:

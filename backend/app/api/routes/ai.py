@@ -13,8 +13,11 @@ class ChatRequest(BaseModel):
     messages: List[Dict[str, str]] = Field(..., description="Chat messages")
     api_key: str = Field(..., description="API key")
     base_url: Optional[str] = Field(None, description="Custom base URL")
-    temperature: Optional[float] = Field(0.7, description="Temperature for generation")
-    max_tokens: Optional[int] = Field(2000, description="Maximum tokens to generate")
+    temperature: Optional[float] = Field(None, description="Temperature for generation")
+    max_tokens: Optional[int] = Field(None, description="Maximum tokens to generate")
+    top_p: Optional[float] = Field(None, description="Top-p sampling")
+    frequency_penalty: Optional[float] = Field(None, description="Frequency penalty")
+    presence_penalty: Optional[float] = Field(None, description="Presence penalty")
 
 class TestConnectionRequest(BaseModel):
     provider: str = Field(..., description="AI provider name")
@@ -62,14 +65,20 @@ async def get_providers() -> Dict[str, ProviderConfig]:
 async def chat(request: ChatRequest) -> Dict[str, Any]:
     """发送聊天消息到AI"""
     try:
+        # 使用请求中的参数，如果没有则使用配置的默认值
+        default_params = ai_manager.get_default_ai_params()
+        
         response = await ai_manager.chat(
             provider=request.provider,
             model=request.model,
             messages=request.messages,
             api_key=request.api_key,
             base_url=request.base_url,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens
+            temperature=request.temperature if request.temperature is not None else default_params["temperature"],
+            max_tokens=request.max_tokens if request.max_tokens is not None else default_params["max_tokens"],
+            top_p=request.top_p if request.top_p is not None else default_params.get("top_p", 1.0),
+            frequency_penalty=request.frequency_penalty if request.frequency_penalty is not None else default_params.get("frequency_penalty", 0.0),
+            presence_penalty=request.presence_penalty if request.presence_penalty is not None else default_params.get("presence_penalty", 0.0)
         )
         return response
     except ValueError as e:

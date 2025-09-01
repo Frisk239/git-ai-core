@@ -12,6 +12,7 @@ from app.core.git_manager import GitManager
 from app.core.ai_manager import AIManager
 from app.core.mcp_server import McpServer
 from app.core.database import init_db
+from app.core.ai_config_manager import ai_config_manager
 
 logger = logging.getLogger(__name__)
 

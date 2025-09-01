@@ -17,10 +17,36 @@ export const AISettings: React.FC = () => {
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
+  const [temperature, setTemperature] = useState<number>(0.7)
+  const [maxTokens, setMaxTokens] = useState<number>(2000)
+  const [topP, setTopP] = useState<number>(1.0)
+  const [frequencyPenalty, setFrequencyPenalty] = useState<number>(0.0)
+  const [presencePenalty, setPresencePenalty] = useState<number>(0.0)
 
   const { data: providers = {} } = useQuery<Record<string, AIProvider>>({
     queryKey: ['ai-providers'],
     queryFn: () => api.getAIProviders()
+  })
+
+  // 加载配置
+  useQuery({
+    queryKey: ['ai-config'],
+    queryFn: async () => {
+      const response = await api.getAIConfig()
+      if (response.exists && response.config) {
+        const config = response.config
+        setSelectedProvider(config.ai_provider || '')
+        setSelectedModel(config.ai_model || '')
+        setApiKey(config.ai_api_key || '')
+        setBaseUrl(config.ai_base_url || '')
+        setTemperature(config.temperature || 0.7)
+        setMaxTokens(config.max_tokens || 2000)
+        setTopP(config.top_p || 1.0)
+        setFrequencyPenalty(config.frequency_penalty || 0.0)
+        setPresencePenalty(config.presence_penalty || 0.0)
+      }
+      return response
+    }
   })
 
   const handleTestConnection = async () => {
@@ -47,6 +73,11 @@ export const AISettings: React.FC = () => {
     localStorage.setItem('ai-model', selectedModel)
     localStorage.setItem('ai-api-key', apiKey)
     localStorage.setItem('ai-base-url', baseUrl)
+    localStorage.setItem('ai-temperature', temperature.toString())
+    localStorage.setItem('ai-max-tokens', maxTokens.toString())
+    localStorage.setItem('ai-top-p', topP.toString())
+    localStorage.setItem('ai-frequency-penalty', frequencyPenalty.toString())
+    localStorage.setItem('ai-presence-penalty', presencePenalty.toString())
     
     // 同时保存到配置文件
     try {
@@ -54,7 +85,12 @@ export const AISettings: React.FC = () => {
         ai_provider: selectedProvider,
         ai_model: selectedModel,
         ai_api_key: apiKey,
-        ai_base_url: baseUrl
+        ai_base_url: baseUrl,
+        temperature: temperature,
+        max_tokens: maxTokens,
+        top_p: topP,
+        frequency_penalty: frequencyPenalty,
+        presence_penalty: presencePenalty
       })
       toast.success('设置已保存到配置文件！')
     } catch (error) {
@@ -156,6 +192,92 @@ export const AISettings: React.FC = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   )}
+                </div>
+
+                {/* AI参数设置 */}
+                <div className="pt-6 border-t border-gray-200">
+                  <h3 className="text-lg font-semibold mb-4">AI参数设置</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        温度 (Temperature)
+                        <span className="text-xs text-gray-500 ml-1">(0.0-2.0)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={temperature}
+                        onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        最大令牌数 (Max Tokens)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        step="100"
+                        value={maxTokens}
+                        onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Top-P
+                        <span className="text-xs text-gray-500 ml-1">(0.0-1.0)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={topP}
+                        onChange={(e) => setTopP(parseFloat(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        频率惩罚 (Frequency Penalty)
+                        <span className="text-xs text-gray-500 ml-1">(-2.0-2.0)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="-2"
+                        max="2"
+                        step="0.1"
+                        value={frequencyPenalty}
+                        onChange={(e) => setFrequencyPenalty(parseFloat(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        存在惩罚 (Presence Penalty)
+                        <span className="text-xs text-gray-500 ml-1">(-2.0-2.0)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="-2"
+                        max="2"
+                        step="0.1"
+                        value={presencePenalty}
+                        onChange={(e) => setPresencePenalty(parseFloat(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex space-x-3 pt-4">

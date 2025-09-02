@@ -561,9 +561,10 @@ class AdvancedSmartConversationManager:
                     "result": {
                         "success": file_path in file_contents,
                         "content": file_contents.get(file_path, ""),
-                        "file_path": file_path
+                        "file_path": file_path  # 确保包含文件路径
                     },
-                    "reason": req.get("reason", "")
+                    "reason": req.get("reason", ""),
+                    "file_path": file_path  # 添加文件路径到顶层，便于前端显示
                 })
             
             return {

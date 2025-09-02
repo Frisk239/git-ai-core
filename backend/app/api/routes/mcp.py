@@ -15,6 +15,13 @@ class MCPServerConfig(BaseModel):
     args: Optional[List[str]] = Field(None, description="Command arguments")
     env: Optional[Dict[str, str]] = Field(None, description="Environment variables")
     description: Optional[str] = Field(None, description="Server description")
+    enabled: Optional[bool] = Field(True, description="Whether the server is enabled")
+    transportType: Optional[str] = Field("stdio", description="Transport type (stdio/http)")
+    url: Optional[str] = Field("", description="URL for HTTP transport")
+    headers: Optional[Dict[str, str]] = Field({}, description="Headers for HTTP transport")
+
+class MCPServerTestRequest(BaseModel):
+    config: MCPServerConfig = Field(..., description="Server configuration to test")
 
 class MCPRequest(BaseModel):
     server_name: str = Field(..., description="MCP server name")
@@ -42,6 +49,10 @@ async def list_servers() -> Dict[str, Any]:
             "args": server.get("args", []),
             "env": server.get("env", {}),
             "description": server.get("description", ""),
+            "enabled": server.get("enabled", True),
+            "transportType": server.get("transportType", "stdio"),
+            "url": server.get("url", ""),
+            "headers": server.get("headers", {}),
             "builtin": True  # 标记为内置服务器
         }
     
@@ -67,7 +78,11 @@ async def add_server(config: MCPServerConfig) -> Dict[str, Any]:
         "command": config.command,
         "args": config.args or [],
         "env": config.env or {},
-        "description": config.description or ""
+        "description": config.description or "",
+        "enabled": config.enabled or True,
+        "transportType": config.transportType or "stdio",
+        "url": config.url or "",
+        "headers": config.headers or {}
     }
     
     if mcp_server.add_server(config.name, server_config):
@@ -84,7 +99,11 @@ async def update_server(server_name: str, config: MCPServerConfig) -> Dict[str, 
         "command": config.command,
         "args": config.args or [],
         "env": config.env or {},
-        "description": config.description or ""
+        "description": config.description or "",
+        "enabled": config.enabled or True,
+        "transportType": config.transportType or "stdio",
+        "url": config.url or "",
+        "headers": config.headers or {}
     }
     
     if mcp_server.update_server(server_name, server_config):
@@ -101,6 +120,27 @@ async def remove_server(server_name: str) -> Dict[str, Any]:
         return {"success": True, "message": "Server removed successfully"}
     else:
         raise HTTPException(status_code=500, detail="Failed to remove server configuration")
+
+@router.post("/servers/test")
+async def test_server(request: MCPServerTestRequest) -> Dict[str, Any]:
+    """测试MCP服务器连接"""
+    mcp_server = get_mcp_server()
+    
+    # 将配置转换为字典格式
+    config_dict = {
+        "command": request.config.command,
+        "args": request.config.args or [],
+        "env": request.config.env or {},
+        "description": request.config.description or "",
+        "enabled": request.config.enabled or True,
+        "transportType": request.config.transportType or "stdio",
+        "url": request.config.url or "",
+        "headers": request.config.headers or {}
+    }
+    
+    # 测试服务器连接
+    result = await mcp_server.test_server_connection(config_dict)
+    return result
 
 @router.post("/execute")
 async def execute_tool(request: MCPRequest) -> Dict[str, Any]:

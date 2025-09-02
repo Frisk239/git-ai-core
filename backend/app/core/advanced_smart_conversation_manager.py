@@ -31,7 +31,19 @@ class IntentRecognizer:
         '代码': ['.py', '.js', '.ts', '.java', '.cpp', '.c'],
         '项目': ['README.md', 'package.json', 'pyproject.toml'],
         '架构': ['README.md', 'docs/', 'architecture.md'],
-        '测试': ['test/', 'tests/', '.test.', '.spec.']
+        '测试': ['test/', 'tests/', '.test.', '.spec.'],
+        # 新增关键词映射（基于Cline理念）
+        'readme': ['README.md', 'readme.md', 'Readme.md', 'README.txt'],
+        '说明': ['README.md', '说明.md', '说明.txt', 'documentation/'],
+        '介绍': ['README.md', '介绍.md', '介绍.txt'],
+        '指南': ['README.md', '指南.md', 'guide.md', 'tutorial.md'],
+        '帮助': ['README.md', '帮助.md', 'help.md', 'docs/'],
+        '教程': ['README.md', '教程.md', 'tutorial.md', 'docs/'],
+        '手册': ['README.md', '手册.md', 'manual.md', 'docs/'],
+        '设置': ['.env', 'config/', 'settings/', '.json', '.yaml'],
+        '环境': ['.env', 'environment.', 'env.'],
+        '主文件': ['main.', 'index.', 'app.', 'src/main.'],
+        '入口': ['main.', 'index.', 'app.', 'src/main.']
     }
     
     def __init__(self):
@@ -39,24 +51,60 @@ class IntentRecognizer:
         self.project_mcp_server = project_mcp_server
     
     def extract_keywords(self, query: str) -> List[str]:
-        """提取查询中的关键词"""
-        # 移除标点符号
-        cleaned_query = re.sub(r'[^\w\s]', ' ', query)
-        # 分词并过滤停用词
+        """提取查询中的关键词（基于Cline理念的智能分词）"""
+        # 移除标点符号但保留重要符号如. / _ -
+        cleaned_query = re.sub(r'[^\w\s./_-]', ' ', query)
+        
+        # 分词并保留重要技术术语
         words = cleaned_query.split()
-        stop_words = {'的', '了', '在', '是', '我', '你', '他', '她', '它', '这', '那', '哪些', '什么', '怎么', '如何'}
-        keywords = [word for word in words if word not in stop_words and len(word) > 1]
+        
+        # 更智能的停用词过滤
+        stop_words = {
+            '的', '了', '在', '是', '我', '你', '他', '她', '它', '这', '那', 
+            '哪些', '什么', '怎么', '如何', '请', '分析', '这个', '项目', '文件'
+        }
+        
+        # 保留技术相关词汇和文件路径相关词汇
+        keywords = [
+            word for word in words 
+            if (word not in stop_words and len(word) > 1) or
+               any(char in word for char in ['.', '/', '_', '-'])  # 保留文件路径相关词汇
+        ]
+        
         return keywords
     
     def identify_file_types(self, keywords: List[str]) -> List[str]:
-        """根据关键词识别文件类型"""
-        file_types = []
+        """根据关键词识别文件类型（基于Cline理念的智能识别）"""
+        file_types = set()
+        
+        # 文档类关键词优先识别
+        doc_keywords = {'readme', '文档', '说明', '介绍', '指南', '帮助', '教程', '手册', 'md', 'txt'}
+        if any(keyword in doc_keywords for keyword in keywords):
+            file_types.add('documentation')
+        
+        # 配置类关键词
+        config_keywords = {'配置', '设置', 'config', 'setting', 'json', 'yaml', 'yml', 'env'}
+        if any(keyword in config_keywords for keyword in keywords):
+            file_types.add('config')
+        
+        # 源代码类关键词
+        code_keywords = {'代码', '函数', '类', '模块', '包', 'py', 'js', 'ts', 'java', '源码'}
+        if any(keyword in code_keywords for keyword in keywords):
+            file_types.add('python')
+            file_types.add('javascript')
+        
+        # 构建类关键词
+        build_keywords = {'构建', '编译', '安装', '部署', 'docker', 'makefile'}
+        if any(keyword in build_keywords for keyword in keywords):
+            file_types.add('build')
+        
+        # 基于文件扩展名的识别
         for keyword in keywords:
             for file_type, patterns in self.FILE_TYPE_PATTERNS.items():
                 if any(pattern in keyword for pattern in patterns):
-                    if file_type not in file_types:
-                        file_types.append(file_type)
-        return file_types if file_types else ['python', 'javascript', 'config']  # 默认类型
+                    file_types.add(file_type)
+        
+        return list(file_types) if file_types else ['python', 'javascript', 'config', 'documentation']  # 默认包含文档类型
     
     async def get_project_structure(self, project_path: str) -> Dict[str, Any]:
         """获取项目文件结构"""
@@ -124,25 +172,84 @@ class IntentRecognizer:
         
         return files
     
-    def match_files_to_query(self, project_structure: Dict[str, Any], keywords: List[str], file_types: List[str]) -> List[Dict[str, Any]]:
-        """匹配查询到具体的文件"""
+    def _get_file_patterns_for_keyword(self, keyword: str) -> List[str]:
+        """根据关键词生成文件匹配模式（基于Cline理念）"""
+        keyword_lower = keyword.lower()
+        
+        # README相关
+        if 'readme' in keyword_lower:
+            return ['README.md', 'readme.md', 'Readme.md', 'README.txt', 'readme.txt']
+        
+        # 配置文件相关
+        if any(term in keyword_lower for term in ['配置', 'config', 'setting']):
+            return ['.env', 'config.', 'settings.', '.json', '.yaml', '.yml']
+        
+        # 包管理文件
+        if any(term in keyword_lower for term in ['包', 'package', '依赖', 'requirement']):
+            return ['package.json', 'requirements.txt', 'pyproject.toml', 'setup.py']
+        
+        # 源代码文件
+        if any(term in keyword_lower for term in ['代码', '源码', 'source']):
+            return ['.py', '.js', '.ts', '.java']
+        
+        return []
+
+    def _handle_special_query_intents(self, query_context: str, project_structure: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """处理特殊查询意图（基于Cline理念）"""
         suggested_files = []
         
-        # 1. 精确文件名匹配（最高优先级）
+        # README查询
+        if any(term in query_context for term in ['readme', '文档', '说明', '介绍']):
+            readme_files = self.find_files_in_tree(project_structure, ['README.md', 'readme.md', '说明.md', '介绍.md'])
+            for file_path in readme_files:
+                suggested_files.append({
+                    "file_path": file_path,
+                    "reason": "文档查询匹配",
+                    "priority": 18
+                })
+        
+        # 主入口文件查询
+        if any(term in query_context for term in ['主文件', '入口', 'main', 'index']):
+            main_files = self.find_files_in_tree(project_structure, ['main.', 'index.', 'app.', 'src/main.'])
+            for file_path in main_files:
+                suggested_files.append({
+                    "file_path": file_path,
+                    "reason": "主入口文件匹配",
+                    "priority": 16
+                })
+        
+        return suggested_files
+
+    def match_files_to_query(self, project_structure: Dict[str, Any], keywords: List[str], file_types: List[str]) -> List[Dict[str, Any]]:
+        """匹配查询到具体的文件（基于Cline理念的智能匹配）"""
+        suggested_files = []
+        
+        # 1. 精确文件名匹配（最高优先级）- 改进版
         for keyword in keywords:
-            # 检查是否包含具体的文件名关键词
-            file_name_patterns = ['.py', '.js', '.ts', '.json', '.md', '.txt', '.yaml', '.yml']
-            if any(pattern in keyword for pattern in file_name_patterns):
-                # 尝试直接匹配文件名
-                matched_files = self.find_files_in_tree(project_structure, [keyword])
+            file_patterns = self._get_file_patterns_for_keyword(keyword)
+            if file_patterns:
+                matched_files = self.find_files_in_tree(project_structure, file_patterns)
                 for file_path in matched_files:
                     suggested_files.append({
                         "file_path": file_path,
-                        "reason": f"精确文件名匹配 '{keyword}'",
-                        "priority": 20  # 最高优先级
+                        "reason": f"精确匹配 '{keyword}'",
+                        "priority": 25  # 最高优先级
                     })
         
-        # 2. 基于关键词的直接匹配
+        # 2. 基于文件扩展名的智能匹配
+        for keyword in keywords:
+            if '.' in keyword and len(keyword) > 3:  # 可能是文件扩展名
+                ext = keyword.lower()
+                if any(ext.endswith(pat) for pat in ['.py', '.js', '.ts', '.json', '.md', '.txt', '.yaml', '.yml']):
+                    matched_files = self.find_files_in_tree(project_structure, [f"*{ext}"])
+                    for file_path in matched_files:
+                        suggested_files.append({
+                            "file_path": file_path,
+                            "reason": f"文件扩展名匹配 '{ext}'",
+                            "priority": 20
+                        })
+        
+        # 3. 基于关键词的直接匹配
         for keyword in keywords:
             if keyword in self.KEYWORD_MAPPINGS:
                 patterns = self.KEYWORD_MAPPINGS[keyword]
@@ -156,32 +263,11 @@ class IntentRecognizer:
                             "priority": 15  # 高优先级
                         })
         
-        # 3. 基于查询意图的特殊处理
+        # 4. 智能查询意图处理（新增）
         query_context = " ".join(keywords).lower()
+        suggested_files.extend(self._handle_special_query_intents(query_context, project_structure))
         
-        # 如果是关于特定文件的查询
-        if any(term in query_context for term in ['ai.py', 'ai文件', 'ai模块']):
-            ai_files = self.find_files_in_tree(project_structure, ['ai.py', 'ai_', '_ai'])
-            for file_path in ai_files:
-                if not any(f["file_path"] == file_path for f in suggested_files):
-                    suggested_files.append({
-                        "file_path": file_path,
-                        "reason": "AI相关文件",
-                        "priority": 18  # 较高优先级
-                    })
-        
-        # 如果是关于依赖的查询
-        if any(term in query_context for term in ['依赖', '库', 'package', 'requirement']):
-            dep_files = self.find_files_in_tree(project_structure, ['requirements.txt', 'package.json', 'pyproject.toml'])
-            for file_path in dep_files:
-                if not any(f["file_path"] == file_path for f in suggested_files):
-                    suggested_files.append({
-                        "file_path": file_path,
-                        "reason": "依赖配置文件",
-                        "priority": 16  # 高优先级
-                    })
-        
-        # 4. 基于文件类型的匹配
+        # 5. 基于文件类型的匹配
         for file_type in file_types:
             patterns = self.FILE_TYPE_PATTERNS[file_type]
             matched_files = self.find_files_in_tree(project_structure, patterns)
@@ -194,7 +280,7 @@ class IntentRecognizer:
                         "priority": 10  # 中优先级
                     })
         
-        # 5. 确保包含常见配置文件（最低优先级）
+        # 6. 确保包含常见配置文件（最低优先级）
         common_configs = ['README.md', 'package.json', 'requirements.txt', 'pyproject.toml', 'setup.py']
         for config_file in common_configs:
             config_files = self.find_files_in_tree(project_structure, [config_file])
@@ -208,11 +294,34 @@ class IntentRecognizer:
         
         return suggested_files
     
+    def find_and_optimize_duplicate_file_reads(self, file_requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """检测和优化重复文件读取（基于Cline理念）"""
+        file_read_count = {}
+        optimized_requests = []
+        
+        for req in file_requests:
+            file_path = req["file_path"]
+            file_read_count[file_path] = file_read_count.get(file_path, 0) + 1
+            
+            # 如果是重复读取，降低优先级或添加标记
+            if file_read_count[file_path] > 1:
+                optimized_req = req.copy()
+                optimized_req["priority"] = max(1, req.get("priority", 10) - 5)  # 降低优先级
+                optimized_req["reason"] = f"{req.get('reason', '')} (重复读取)"
+                optimized_requests.append(optimized_req)
+            else:
+                optimized_requests.append(req)
+        
+        return optimized_requests
+
     def prioritize_and_deduplicate(self, files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """优先级排序和去重"""
+        """优先级排序和去重（基于Cline理念）"""
+        # 首先优化重复文件读取
+        optimized_files = self.find_and_optimize_duplicate_file_reads(files)
+        
         # 去重
         unique_files = {}
-        for file_info in files:
+        for file_info in optimized_files:
             file_path = file_info["file_path"]
             if file_path not in unique_files or file_info["priority"] > unique_files[file_path]["priority"]:
                 unique_files[file_path] = file_info

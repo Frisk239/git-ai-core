@@ -333,6 +333,29 @@ const ServerCard: React.FC<{
   )
 }
 
+// 环境变量工具函数
+const envUtils = {
+  parse: (env: string): Record<string, string> => {
+    const lines = env.split('\n')
+    const result: Record<string, string> = {}
+    for (const line of lines) {
+      const eqIndex = line.indexOf('=')
+      if (eqIndex === -1) continue
+      const key = line.slice(0, eqIndex)
+      const value = line.slice(eqIndex + 1)
+      if (key && value && key.trim() && value.trim()) {
+        result[key.trim()] = value.trim()
+      }
+    }
+    return result
+  },
+  stringify: (env: Record<string, string>): string => {
+    return Object.entries(env)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n')
+  },
+}
+
 // 服务器配置模态框组件
 const ServerConfigModal: React.FC<{
   server: MCPServer
@@ -341,11 +364,27 @@ const ServerConfigModal: React.FC<{
   onTest: (server: MCPServer) => void
   isTesting: boolean
 }> = ({ server, onSave, onClose, onTest, isTesting }) => {
-  const [formData, setFormData] = useState<MCPServer>(server)
+  const [formData, setFormData] = useState<MCPServer>({
+    ...server,
+    env: server.env || {},
+    headers: server.headers || {}
+  })
+  
+  // 将环境变量转换为字符串格式用于编辑
+  const [envString, setEnvString] = useState(envUtils.stringify(server.env || {}))
+  const [headersString, setHeadersString] = useState(envUtils.stringify(server.headers || {}))
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData)
+    
+    // 在保存前将字符串格式的环境变量和头信息转换回对象格式
+    const serverToSave = {
+      ...formData,
+      env: envUtils.parse(envString),
+      headers: envUtils.parse(headersString)
+    }
+    
+    onSave(serverToSave)
   }
 
   return (
@@ -443,6 +482,44 @@ const ServerConfigModal: React.FC<{
                 placeholder="MCP服务器描述"
               />
             </div>
+
+            {/* 环境变量编辑区域 - 仅对stdio类型显示 */}
+            {formData.transportType === 'stdio' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  环境变量 (KEY=VALUE格式，每行一个)
+                </label>
+                <textarea
+                  value={envString}
+                  onChange={(e) => setEnvString(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={4}
+                  placeholder="MCP_MODE=stdio&#10;LOG_LEVEL=error&#10;DISABLE_CONSOLE_OUTPUT=true"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  格式: KEY=VALUE，每行一个环境变量
+                </p>
+              </div>
+            )}
+
+            {/* HTTP头信息编辑区域 - 仅对http类型显示 */}
+            {formData.transportType === 'http' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  HTTP头信息 (NAME=VALUE格式，每行一个)
+                </label>
+                <textarea
+                  value={headersString}
+                  onChange={(e) => setHeadersString(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={4}
+                  placeholder="Authorization=Bearer token&#10;Content-Type=application/json"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  格式: NAME=VALUE，每行一个HTTP头
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end space-x-3 mt-6">

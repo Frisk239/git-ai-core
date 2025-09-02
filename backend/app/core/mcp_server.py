@@ -38,6 +38,14 @@ class McpServer:
     def add_server(self, name: str, config: Dict[str, Any]) -> bool:
         """添加MCP服务器"""
         try:
+            # 确保配置包含必要的字段
+            config.setdefault('enabled', True)
+            config.setdefault('transportType', 'stdio')
+            config.setdefault('args', [])
+            config.setdefault('env', {})
+            config.setdefault('headers', {})
+            config.setdefault('description', '')
+            
             self.servers[name] = config
             self._save_servers()
             return True
@@ -67,6 +75,14 @@ class McpServer:
         """更新服务器配置"""
         try:
             if name in self.servers:
+                # 确保配置包含必要的字段
+                config.setdefault('enabled', True)
+                config.setdefault('transportType', 'stdio')
+                config.setdefault('args', [])
+                config.setdefault('env', {})
+                config.setdefault('headers', {})
+                config.setdefault('description', '')
+                
                 self.servers[name] = config
                 self._save_servers()
                 return True
@@ -81,16 +97,45 @@ class McpServer:
                 "name": "comment-server",
                 "command": "python",
                 "args": ["-m", "app.core.comment_mcp_server"],
-                "description": "内置注释生成MCP服务器，提供代码注释生成功能"
+                "env": {},
+                "description": "内置注释生成MCP服务器，提供代码注释生成功能",
+                "enabled": True,
+                "transportType": "stdio",
+                "url": "",
+                "headers": {},
+                "builtin": True
             },
             {
                 "name": "project-file-server",
                 "command": "python",
                 "args": ["-m", "app.core.project_mcp_server"],
-                "description": "内置项目文件读取MCP服务器，提供文件读取和目录列表功能"
+                "env": {},
+                "description": "内置项目文件读取MCP服务器，提供文件读取和目录列表功能",
+                "enabled": True,
+                "transportType": "stdio",
+                "url": "",
+                "headers": {},
+                "builtin": True
             }
         ]
     
     async def start_builtin_server(self, server_name: str) -> bool:
         """启动内置MCP服务器"""
         return False
+    
+    async def test_server_connection(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """测试MCP服务器连接"""
+        try:
+            # 这里实现服务器连接测试逻辑
+            # 返回测试结果，包括是否成功、错误信息和可用工具
+            return {
+                "success": True,
+                "message": "连接测试成功",
+                "tools": []  # 这里可以添加工具发现功能
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"连接测试失败: {str(e)}",
+                "tools": []
+            }

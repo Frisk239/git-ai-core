@@ -4,8 +4,6 @@ import {
   HomeIcon,
   FolderIcon,
   CogIcon,
-  CpuChipIcon,
-  CodeBracketIcon,
   BookOpenIcon,
 } from "@heroicons/react/24/outline";
 
@@ -19,7 +17,7 @@ const navigation = [
   },
   { name: "GitHub Settings", href: "/github-settings", icon: CogIcon },
   { name: "AI Settings", href: "/ai-settings", icon: CogIcon },
-  { name: "MCP Settings", href: "/mcp-settings", icon: CogIcon },
+  { name: "MCP Settings", href: "/mcp-settings-new", icon: CogIcon },
 ];
 
 export const Sidebar: React.FC = () => {

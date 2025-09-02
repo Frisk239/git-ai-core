@@ -109,8 +109,18 @@ export const api = {
     return response.data
   },
 
+  async updateMCPServer(name: string, config: any) {
+    const response = await apiClient.put(`/api/mcp/servers/${name}`, config)
+    return response.data
+  },
+
   async removeMCPServer(name: string) {
     const response = await apiClient.delete(`/api/mcp/servers/${name}`)
+    return response.data
+  },
+
+  async testMCPServer(config: any) {
+    const response = await apiClient.post('/api/mcp/servers/test', { config })
     return response.data
   },
 

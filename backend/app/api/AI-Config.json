@@ -1,7 +1,7 @@
 {
   "ai_provider": "deepseek",
   "ai_model": "deepseek-chat",
-  "ai_api_key": "test-api-key-123",
+  "ai_api_key": "sk-b220ecfa259f47fbb1c2f873327933c8",
   "ai_base_url": "https://api.deepseek.com/v1",
   "temperature": 0.7,
   "max_tokens": 2000,

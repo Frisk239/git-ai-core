@@ -363,9 +363,17 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
                 <div className="p-2 bg-blue-100 rounded-lg">
                   <DocumentTextIcon className="w-4 h-4 text-blue-600" />
                 </div>
-                <span className="text-sm font-semibold text-gray-800">
-                  {toolCall.toolName}
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-gray-800">
+                    {toolCall.toolName}
+                  </span>
+                  {/* 新增：显示文件名称 */}
+                  {toolCall.arguments?.file_path && (
+                    <span className="text-xs text-gray-600 mt-1">
+                      文件: {toolCall.arguments.file_path}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center space-x-2">
                 {toolCall.status === "success" && (

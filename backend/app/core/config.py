@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     default_clone_path: str = str(Path.home() / "git-ai-projects")
     
     # MCP settings
-    mcp_servers_config_path: str = str(Path.home() / ".git-ai-core" / "mcp_servers.json")
+    mcp_servers_config_path: str = str(Path(__file__).parent.parent.parent / "mcp_servers.json")
     
     # Security settings
     encryption_key: Optional[str] = None

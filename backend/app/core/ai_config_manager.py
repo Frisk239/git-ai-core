@@ -17,9 +17,9 @@ class AIConfigManager:
     
     def get_config_path(self) -> str:
         """获取配置文件路径"""
-        # backend/app/api目录下的AI-Config.json
-        current_dir = os.path.dirname(os.path.dirname(__file__))
-        return os.path.join(current_dir, 'api', 'AI-Config.json')
+        # backend目录下的AI-Config.json
+        current_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        return os.path.join(current_dir, 'AI-Config.json')
     
     def load_config(self) -> None:
         """加载AI配置"""

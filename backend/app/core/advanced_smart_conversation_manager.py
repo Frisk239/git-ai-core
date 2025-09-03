@@ -503,9 +503,9 @@ class AdvancedSmartConversationManager:
             
             # 构建正确的配置文件路径（从当前文件位置计算）
             config_paths = [
-                os.path.join(current_dir, '..', 'api', 'AI-Config.json'),  # backend/app/api/AI-Config.json
-                os.path.join(current_dir, '..', '..', 'api', 'AI-Config.json'),  # backend/api/AI-Config.json
-                os.path.join(current_dir, '..', '..', '..', 'AI-Config.json'),   # AI-Config.json
+                os.path.join(current_dir, '..', '..', '..', 'AI-Config.json'),   # backend/AI-Config.json
+                os.path.join(current_dir, '..', 'api', 'AI-Config.json'),  # backend/app/api/AI-Config.json (旧路径，保持兼容)
+                os.path.join(current_dir, '..', '..', 'api', 'AI-Config.json'),  # backend/api/AI-Config.json (旧路径，保持兼容)
             ]
             
             # 添加绝对路径检查并去重

@@ -315,3 +315,56 @@ def save_architecture_documentation(project_path: str, content: str) -> str:
         f.write(content)
     
     return file_path
+
+# 添加项目演化时间线分析路由
+@router.post("/{project_path:path}/analyze/evolution-timeline")
+async def analyze_project_evolution_timeline(
+    project_path: str,
+    analysis_depth: str = Query("medium", description="分析深度: light/medium/full")
+) -> Dict[str, Any]:
+    """生成项目演化时间线分析报告"""
+
+    try:
+        from app.core.project_evolution_analyzer import project_evolution_analyzer
+        from pathlib import Path
+
+        print(f"📊 开始处理项目演化时间线请求: {project_path}")
+
+        # 检查项目路径是否存在
+        if not Path(project_path).exists():
+            error_msg = f"项目路径不存在: {project_path}"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=404, detail=error_msg)
+
+        # 检查是否是目录
+        if not Path(project_path).is_dir():
+            error_msg = f"路径不是目录: {project_path}"
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        # 生成Markdown报告
+        print(f"🔍 调用项目演化分析器，深度: {analysis_depth}")
+        markdown_content = await project_evolution_analyzer.generate_evolution_timeline_md(
+            project_path, analysis_depth
+        )
+
+        # 检查是否返回了错误报告
+        if markdown_content.startswith("# ❌ 项目演化时间线分析失败"):
+            print("❌ 分析器返回了错误报告")
+            raise HTTPException(status_code=400, detail="项目演化分析失败，请检查项目是否为有效的Git仓库")
+
+        # 保存文档并返回结果
+        print("✅ 项目演化时间线分析完成")
+        return {
+            "success": True,
+            "markdown_content": markdown_content,
+            "message": "项目演化时间线分析完成"
+        }
+
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
+    except Exception as e:
+        error_msg = f"演化分析失败: {str(e)}"
+        print(f"❌ {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)

@@ -15,10 +15,12 @@ import {
   CodeBracketIcon,
   UserIcon,
   MagnifyingGlassIcon,
+  ChartBarIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../../services/api";
 import { FileViewer } from "./FileViewer";
 import { SmartChatPanel } from "./SmartChatPanel";
+import { MarkdownViewer } from "./MarkdownViewer";
 
 interface Project {
   info: {
@@ -80,6 +82,8 @@ export const ProjectDetail: React.FC = () => {
   const [isGeneratingArchitecture, setIsGeneratingArchitecture] =
     useState(false);
   const [architectureResult, setArchitectureResult] = useState("");
+  const [isGeneratingEvolution, setIsGeneratingEvolution] = useState(false);
+  const [evolutionResult, setEvolutionResult] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateResult, setUpdateResult] = useState("");
   // 智能对话模式状态
@@ -272,6 +276,36 @@ export const ProjectDetail: React.FC = () => {
       toast.error("生成架构文档失败");
     } finally {
       setIsGeneratingArchitecture(false);
+    }
+  };
+
+  // 生成项目演化时间线
+  const handleGenerateEvolutionTimeline = async () => {
+    const provider = localStorage.getItem("ai-provider");
+    const model = localStorage.getItem("ai-model");
+    const apiKey = localStorage.getItem("ai-api-key");
+    const baseUrl = localStorage.getItem("ai-base-url");
+
+    if (!provider || !model || !apiKey) {
+      toast.error("请先配置AI设置");
+      return;
+    }
+
+    setIsGeneratingEvolution(true);
+    try {
+      const result = await api.generateEvolutionTimeline(decodedPath, "medium");
+      setEvolutionResult(result.markdown_content);
+      toast.success("项目演化时间线生成成功");
+
+      // 生成成功后自动刷新页面数据
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["project", decodedPath] });
+      }, 1000);
+    } catch (error) {
+      console.error("生成项目演化时间线失败:", error);
+      toast.error("生成项目演化时间线失败");
+    } finally {
+      setIsGeneratingEvolution(false);
     }
   };
 
@@ -667,6 +701,23 @@ export const ProjectDetail: React.FC = () => {
                   </>
                 )}
               </button>
+              <button
+                onClick={handleGenerateEvolutionTimeline}
+                disabled={isGeneratingEvolution}
+                className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl hover:from-orange-600 hover:to-red-700 disabled:opacity-50 transition-all duration-300 shadow-md hover:shadow-xl"
+              >
+                {isGeneratingEvolution ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <ChartBarIcon className="h-5 w-5 mr-2" />
+                    项目演化时间线
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -679,6 +730,16 @@ export const ProjectDetail: React.FC = () => {
               <div className="text-sm text-emerald-700/90 whitespace-pre-wrap leading-relaxed bg-white/30 rounded-lg p-3">
                 {architectureResult}
               </div>
+            </div>
+          )}
+
+          {evolutionResult && (
+            <div className="mt-6">
+              <MarkdownViewer
+                content={evolutionResult}
+                title="项目演化时间线分析报告"
+                className="bg-gradient-to-br from-orange-50/50 to-red-50/50 border-orange-200/50"
+              />
             </div>
           )}
         </div>

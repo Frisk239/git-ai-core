@@ -62,6 +62,9 @@ app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(config.router, prefix="/api", tags=["config"])
 app.include_router(github.router, prefix="/api", tags=["github"])
 
+# 挂载静态文件目录 - 支持项目文档和图片访问
+app.mount("/static", StaticFiles(directory="."), name="static")
+
 # WebSocket endpoint for real-time communication
 class ConnectionManager:
     def __init__(self):

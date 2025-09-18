@@ -23,7 +23,15 @@ class GitProject:
         """加载Git仓库"""
         try:
             self.repo = git.Repo(self.path)
-        except git.InvalidGitRepositoryError:
+            logger.debug(f"成功加载Git仓库: {self.path}")
+        except git.InvalidGitRepositoryError as e:
+            logger.warning(f"无效的Git仓库: {self.path}, 错误: {e}")
+            self.repo = None
+        except PermissionError as e:
+            logger.error(f"权限错误，无法访问Git仓库: {self.path}, 错误: {e}")
+            self.repo = None
+        except Exception as e:
+            logger.error(f"加载Git仓库时发生未知错误: {self.path}, 错误: {e}")
             self.repo = None
     
     def close(self):
@@ -201,9 +209,29 @@ class GitManager:
         return False
     
     def get_project(self, path: str) -> Optional[GitProject]:
-        """获取项目"""
+        """获取项目 - 增强版，支持fallback机制"""
         resolved_path = str(Path(path).resolve())
-        return self.projects.get(resolved_path)
+
+        # 首先尝试从管理器中获取
+        project = self.projects.get(resolved_path)
+        if project:
+            return project
+
+        # 如果不在管理器中，尝试直接创建项目对象
+        logger.debug(f"项目不在管理器中，尝试直接创建: {resolved_path}")
+        try:
+            direct_project = GitProject(resolved_path)
+            if direct_project.is_valid():
+                # 添加到管理器以便后续使用
+                self.projects[resolved_path] = direct_project
+                logger.info(f"成功创建并添加项目到管理器: {resolved_path}")
+                return direct_project
+            else:
+                logger.warning(f"项目路径存在但不是有效Git仓库: {resolved_path}")
+                return None
+        except Exception as e:
+            logger.error(f"创建项目对象失败: {resolved_path}, 错误: {e}")
+            return None
     
     def list_projects(self) -> List[Dict[str, Any]]:
         """列出所有项目"""

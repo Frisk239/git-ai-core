@@ -163,6 +163,14 @@ export const api = {
     return response.data
   },
 
+  // 项目演化时间线分析
+  async generateEvolutionTimeline(projectPath: string, analysisDepth: string = "medium") {
+    const response = await apiClient.post(`/api/projects/${encodeURIComponent(projectPath)}/analyze/evolution-timeline`, {
+      analysis_depth: analysisDepth
+    });
+    return response.data;
+  },
+
   // 配置管理
   async getAIConfig() {
     const response = await apiClient.get('/api/config/ai')

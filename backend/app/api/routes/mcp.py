@@ -1,444 +1,508 @@
+"""
+MCP服务器管理API路由
+提供完整的MCP服务器管理、工具调用、资源访问等功能
+"""
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
-import json
-import os
-from pathlib import Path
-from app.core.comment_mcp_server import comment_mcp_server
-from app.core.project_mcp_server import project_mcp_server
+import logging
+
+from app.core.mcp_server import MCPServerManager
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+# ==================== Pydantic模型 ====================
+
 class MCPServerConfig(BaseModel):
-    name: str = Field(..., description="Server name")
-    command: str = Field(..., description="Command to run the server")
-    args: Optional[List[str]] = Field(None, description="Command arguments")
-    env: Optional[Dict[str, str]] = Field(None, description="Environment variables")
-    description: Optional[str] = Field(None, description="Server description")
-    enabled: Optional[bool] = Field(True, description="Whether the server is enabled")
-    transportType: Optional[str] = Field("stdio", description="Transport type (stdio/http)")
-    url: Optional[str] = Field("", description="URL for HTTP transport")
-    headers: Optional[Dict[str, str]] = Field({}, description="Headers for HTTP transport")
+    """MCP服务器配置模型"""
+    name: str = Field(..., description="服务器名称")
+    command: str = Field(..., description="启动命令")
+    args: Optional[List[str]] = Field(None, description="命令参数")
+    env: Optional[Dict[str, str]] = Field(None, description="环境变量")
+    description: Optional[str] = Field(None, description="服务器描述")
+    enabled: Optional[bool] = Field(True, description="是否启用")
+    transportType: Optional[str] = Field("stdio", description="传输类型 (stdio/http)")
+    url: Optional[str] = Field("", description="HTTP服务器URL")
+    headers: Optional[Dict[str, str]] = Field({}, description="HTTP请求头")
+
 
 class MCPServerTestRequest(BaseModel):
-    config: MCPServerConfig = Field(..., description="Server configuration to test")
+    """MCP服务器测试请求"""
+    config: MCPServerConfig = Field(..., description="服务器配置")
 
-class MCPRequest(BaseModel):
-    server_name: str = Field(..., description="MCP server name")
-    tool_name: str = Field(..., description="Tool name")
-    arguments: Dict[str, Any] = Field(..., description="Tool arguments")
 
-def get_mcp_server():
+class MCPToolExecuteRequest(BaseModel):
+    """MCP工具执行请求"""
+    server_name: str = Field(..., description="服务器名称")
+    tool_name: str = Field(..., description="工具名称")
+    arguments: Dict[str, Any] = Field(..., description="工具参数")
+
+
+class MCPResourceReadRequest(BaseModel):
+    """MCP资源读取请求"""
+    server_name: str = Field(..., description="服务器名称")
+    uri: str = Field(..., description="资源URI")
+
+
+class MCPPromptGetRequest(BaseModel):
+    """MCP提示词获取请求"""
+    server_name: str = Field(..., description="服务器名称")
+    prompt_name: str = Field(..., description="提示词名称")
+    arguments: Optional[Dict[str, Any]] = Field(None, description="提示词参数")
+
+
+# ==================== 辅助函数 ====================
+
+def get_mcp_manager() -> MCPServerManager:
+    """获取MCP服务器管理器实例"""
     from app.main import app
-    return app.state.mcp_server
+    return app.state.mcp_manager
 
+
+# ==================== 服务器管理端点 ====================
 
 @router.get("/servers")
 async def list_servers() -> Dict[str, Any]:
-    """列出所有MCP服务器"""
-    mcp_server = get_mcp_server()
-    
-    # 获取配置的服务器
-    configured_servers = mcp_server.list_servers()
-    
-    # 获取内置服务器并合并
-    builtin_servers = mcp_server.get_builtin_servers()
-    for server in builtin_servers:
-        configured_servers[server["name"]] = {
-            "command": server["command"],
-            "args": server.get("args", []),
-            "env": server.get("env", {}),
-            "description": server.get("description", ""),
-            "enabled": server.get("enabled", True),
-            "transportType": server.get("transportType", "stdio"),
-            "url": server.get("url", ""),
-            "headers": server.get("headers", {}),
-            "builtin": True  # 标记为内置服务器
-        }
-    
-    return configured_servers
+    """列出所有MCP服务器配置"""
+    try:
+        mcp_manager = get_mcp_manager()
+        configured_servers = mcp_manager.list_servers()
+
+        # 获取内置服务器并合并
+        builtin_servers = mcp_manager.get_builtin_servers()
+        for server in builtin_servers:
+            configured_servers[server["name"]] = {
+                "command": server["command"],
+                "args": server.get("args", []),
+                "env": server.get("env", {}),
+                "description": server.get("description", ""),
+                "enabled": server.get("enabled", True),
+                "transportType": server.get("transportType", "stdio"),
+                "url": server.get("url", ""),
+                "headers": server.get("headers", {}),
+                "builtin": True
+            }
+
+        return configured_servers
+
+    except Exception as e:
+        logger.error(f"Failed to list servers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/servers/{server_name}")
 async def get_server(server_name: str) -> Dict[str, Any]:
     """获取特定MCP服务器配置"""
-    mcp_server = get_mcp_server()
-    server = mcp_server.get_server(server_name)
-    
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
-    
-    return server
+    try:
+        mcp_manager = get_mcp_manager()
+        server = mcp_manager.get_server(server_name)
+
+        if not server:
+            raise HTTPException(status_code=404, detail="Server not found")
+
+        return server
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/servers")
 async def add_server(config: MCPServerConfig) -> Dict[str, Any]:
     """添加MCP服务器"""
-    mcp_server = get_mcp_server()
-    
-    server_config = {
-        "command": config.command,
-        "args": config.args or [],
-        "env": config.env or {},
-        "description": config.description or "",
-        "enabled": config.enabled or True,
-        "transportType": config.transportType or "stdio",
-        "url": config.url or "",
-        "headers": config.headers or {}
-    }
-    
-    if mcp_server.add_server(config.name, server_config):
-        return {"success": True, "message": "Server added successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to save server configuration")
+    try:
+        mcp_manager = get_mcp_manager()
+
+        server_config = {
+            "command": config.command,
+            "args": config.args or [],
+            "env": config.env or {},
+            "description": config.description or "",
+            "enabled": config.enabled or True,
+            "transportType": config.transportType or "stdio",
+            "url": config.url or "",
+            "headers": config.headers or {}
+        }
+
+        if mcp_manager.add_server(config.name, server_config):
+            return {"success": True, "message": "服务器添加成功"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save server configuration")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.put("/servers/{server_name}")
 async def update_server(server_name: str, config: MCPServerConfig) -> Dict[str, Any]:
     """更新MCP服务器"""
-    mcp_server = get_mcp_server()
-    
-    server_config = {
-        "command": config.command,
-        "args": config.args or [],
-        "env": config.env or {},
-        "description": config.description or "",
-        "enabled": config.enabled or True,
-        "transportType": config.transportType or "stdio",
-        "url": config.url or "",
-        "headers": config.headers or {}
-    }
-    
-    if mcp_server.update_server(server_name, server_config):
-        return {"success": True, "message": "Server updated successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to save server configuration")
+    try:
+        mcp_manager = get_mcp_manager()
+
+        server_config = {
+            "command": config.command,
+            "args": config.args or [],
+            "env": config.env or {},
+            "description": config.description or "",
+            "enabled": config.enabled or True,
+            "transportType": config.transportType or "stdio",
+            "url": config.url or "",
+            "headers": config.headers or {}
+        }
+
+        if mcp_manager.update_server(server_name, server_config):
+            return {"success": True, "message": "服务器更新成功"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save server configuration")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.delete("/servers/{server_name}")
 async def remove_server(server_name: str) -> Dict[str, Any]:
     """删除MCP服务器"""
-    mcp_server = get_mcp_server()
-    
-    if mcp_server.remove_server(server_name):
-        return {"success": True, "message": "Server removed successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to remove server configuration")
+    try:
+        mcp_manager = get_mcp_manager()
+
+        if mcp_manager.remove_server(server_name):
+            return {"success": True, "message": "服务器删除成功"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to remove server configuration")
+
+    except Exception as e:
+        logger.error(f"Failed to remove server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/servers/test")
 async def test_server(request: MCPServerTestRequest) -> Dict[str, Any]:
     """测试MCP服务器连接"""
-    mcp_server = get_mcp_server()
-    
-    # 将配置转换为字典格式
-    config_dict = {
-        "command": request.config.command,
-        "args": request.config.args or [],
-        "env": request.config.env or {},
-        "description": request.config.description or "",
-        "enabled": request.config.enabled or True,
-        "transportType": request.config.transportType or "stdio",
-        "url": request.config.url or "",
-        "headers": request.config.headers or {}
-    }
-    
-    # 测试服务器连接
-    result = await mcp_server.test_server_connection(config_dict)
-    return result
+    try:
+        mcp_manager = get_mcp_manager()
 
-@router.post("/execute")
-async def execute_tool(request: MCPRequest) -> Dict[str, Any]:
-    """执行MCP工具"""
-    # 处理注释生成MCP服务器的请求
-    if request.server_name == "comment-server":
-        return await _handle_comment_server_request(request.tool_name, request.arguments)
-    
-    # 处理项目文件读取MCP服务器的请求
-    if request.server_name == "project-file-server":
-        return await _handle_project_file_server_request(request.tool_name, request.arguments)
-    
-    # 这里需要实现其他MCP服务器的执行逻辑
-    # 目前返回模拟响应
-    return {
-        "success": True,
-        "result": {
-            "message": f"Tool {request.tool_name} executed on server {request.server_name}",
-            "arguments": request.arguments
+        # 将配置转换为字典格式
+        config_dict = {
+            "command": request.config.command,
+            "args": request.config.args or [],
+            "env": request.config.env or {},
+            "description": request.config.description or "",
+            "enabled": request.config.enabled or True,
+            "transportType": request.config.transportType or "stdio",
+            "url": request.config.url or "",
+            "headers": request.config.headers or {}
         }
-    }
 
-async def _handle_comment_server_request(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """处理注释服务器请求"""
-    try:
-        # 获取项目根目录和文件相对路径
-        project_root = arguments.get("project_root")
-        file_path = arguments.get("file_path")
-        
-        if not project_root or not file_path:
-            raise HTTPException(status_code=400, detail="Missing project_root or file_path parameter")
-        
-        # 拼接完整文件路径
-        full_path = os.path.join(project_root, file_path)
-        
-        if tool_name == "generate_comments":
-            comment_style = arguments.get("comment_style", "detailed")
-            
-            # 添加调试信息
-            print(f"Generating comments for: {full_path}")
-            print(f"Project root: {project_root}")
-            print(f"File path: {file_path}")
-            
-            result = await comment_mcp_server.generate_comments(full_path, comment_style)
-            return {"success": result["success"], "result": result}
-            
-        elif tool_name == "preview_comments":
-            comment_style = arguments.get("comment_style", "detailed")
-            
-            # 添加调试信息
-            print(f"Previewing comments for: {full_path}")
-            print(f"Project root: {project_root}")
-            print(f"File path: {file_path}")
-            
-            result = await comment_mcp_server.preview_comments(full_path, comment_style)
-            return {"success": result["success"], "result": result}
-            
-        elif tool_name == "write_comments":
-            content = arguments.get("content")
-            
-            if not content:
-                raise HTTPException(status_code=400, detail="Missing content parameter")
-            
-            success = await comment_mcp_server.write_file(full_path, content)
-            return {"success": success, "result": {"message": "File written successfully"}}
-            
-        elif tool_name == "read_file":
-            content = await comment_mcp_server.read_file(full_path)
-            return {"success": True, "result": {"content": content}}
-            
-        elif tool_name == "get_supported_languages":
-            languages = comment_mcp_server.get_supported_languages()
-            return {"success": True, "result": {"languages": languages}}
-            
-        elif tool_name == "get_comment_styles":
-            styles = comment_mcp_server.get_comment_styles()
-            return {"success": True, "result": {"styles": styles}}
-            
-        else:
-            raise HTTPException(status_code=404, detail=f"Tool {tool_name} not found")
-            
+        # 测试服务器连接
+        result = await mcp_manager.test_server_connection(config_dict)
+        return result
+
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        logger.error(f"Failed to test server: {e}")
+        return {
+            "success": False,
+            "message": f"测试失败: {str(e)}",
+            "tools": [],
+            "resources": [],
+            "prompts": []
+        }
 
-async def _handle_project_file_server_request(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """处理项目文件服务器请求"""
+
+# ==================== 服务器控制端点 ====================
+
+@router.post("/servers/{server_name}/start")
+async def start_server(server_name: str) -> Dict[str, Any]:
+    """启动MCP服务器"""
     try:
-        # 获取项目路径和文件相对路径
-        project_path = arguments.get("project_path")
-        
-        if not project_path:
-            raise HTTPException(status_code=400, detail="Missing project_path parameter")
-        
-        if tool_name == "read_project_file":
-            file_path = arguments.get("file_path")
-            if not file_path:
-                raise HTTPException(status_code=400, detail="Missing file_path parameter")
-            
-            result = await project_mcp_server.read_project_file(project_path, file_path)
-            return {"success": result["success"], "result": result}
-            
-        elif tool_name == "list_project_files":
-            directory = arguments.get("directory", "")
-            max_depth = arguments.get("max_depth", 2)
-            
-            result = await project_mcp_server.list_project_files(project_path, directory, max_depth)
-            return {"success": result["success"], "result": result}
-            
-        elif tool_name == "get_file_metadata":
-            file_path = arguments.get("file_path")
-            if not file_path:
-                raise HTTPException(status_code=400, detail="Missing file_path parameter")
-            
-            result = await project_mcp_server.get_file_metadata(project_path, file_path)
-            return {"success": result["success"], "result": result}
-            
-        elif tool_name == "get_supported_extensions":
-            extensions = project_mcp_server.get_supported_extensions()
-            return {"success": True, "result": {"extensions": extensions}}
-            
-        elif tool_name == "get_server_info":
-            info = project_mcp_server.get_server_info()
-            return {"success": True, "result": info}
-            
-        else:
-            raise HTTPException(status_code=404, detail=f"Tool {tool_name} not found")
-            
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        mcp_manager = get_mcp_manager()
 
+        success = await mcp_manager.start_server(server_name)
+
+        if success:
+            return {"success": True, "message": f"服务器 {server_name} 启动成功"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to start server {server_name}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/servers/{server_name}/stop")
+async def stop_server(server_name: str) -> Dict[str, Any]:
+    """停止MCP服务器"""
+    try:
+        mcp_manager = get_mcp_manager()
+
+        success = await mcp_manager.stop_server(server_name)
+
+        if success:
+            return {"success": True, "message": f"服务器 {server_name} 停止成功"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to stop server {server_name}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stop server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/servers/{server_name}/restart")
+async def restart_server(server_name: str) -> Dict[str, Any]:
+    """重启MCP服务器"""
+    try:
+        mcp_manager = get_mcp_manager()
+
+        success = await mcp_manager.restart_server(server_name)
+
+        if success:
+            return {"success": True, "message": f"服务器 {server_name} 重启成功"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to restart server {server_name}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to restart server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/servers/{server_name}/status")
+async def get_server_status(server_name: str) -> Dict[str, Any]:
+    """获取MCP服务器状态"""
+    try:
+        mcp_manager = get_mcp_manager()
+        status = await mcp_manager.get_server_status(server_name)
+        return status
+
+    except Exception as e:
+        logger.error(f"Failed to get server status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/servers/status/all")
+async def get_all_servers_status() -> Dict[str, Any]:
+    """获取所有MCP服务器状态"""
+    try:
+        mcp_manager = get_mcp_manager()
+        statuses = await mcp_manager.get_all_servers_status()
+        return statuses
+
+    except Exception as e:
+        logger.error(f"Failed to get all servers status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 工具管理端点 ====================
 
 @router.get("/tools/{server_name}")
 async def list_tools(server_name: str) -> List[Dict[str, Any]]:
     """列出MCP服务器的所有工具"""
-    # 返回注释服务器的工具列表
-    if server_name == "comment-server":
-        return [
-            {
-                "name": "generate_comments",
-                "description": "生成代码注释",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_root": {"type": "string", "description": "项目根目录路径"},
-                        "file_path": {"type": "string", "description": "文件相对路径"},
-                        "comment_style": {
-                            "type": "string", 
-                            "description": "注释风格",
-                            "enum": ["detailed", "brief", "documentation"],
-                            "default": "detailed"
-                        }
-                    },
-                    "required": ["project_root", "file_path"]
-                }
-            },
-            {
-                "name": "preview_comments",
-                "description": "预览注释效果",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_root": {"type": "string", "description": "项目根目录路径"},
-                        "file_path": {"type": "string", "description": "文件相对路径"},
-                        "comment_style": {
-                            "type": "string", 
-                            "description": "注释风格",
-                            "enum": ["detailed", "brief", "documentation"],
-                            "default": "detailed"
-                        }
-                    },
-                    "required": ["project_root", "file_path"]
-                }
-            },
-            {
-                "name": "write_comments",
-                "description": "写入注释到文件",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_root": {"type": "string", "description": "项目根目录路径"},
-                        "file_path": {"type": "string", "description": "文件相对路径"},
-                        "content": {"type": "string", "description": "文件内容"}
-                    },
-                    "required": ["project_root", "file_path", "content"]
-                }
-            },
-            {
-                "name": "read_file",
-                "description": "读取文件内容",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_root": {"type": "string", "description": "项目根目录路径"},
-                        "file_path": {"type": "string", "description": "文件相对路径"}
-                    },
-                    "required": ["project_root", "file_path"]
-                }
-            },
-            {
-                "name": "get_supported_languages",
-                "description": "获取支持的编程语言",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            },
-            {
-                "name": "get_comment_styles",
-                "description": "获取可用的注释风格",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            }
-        ]
-    
-    # 返回项目文件服务器的工具列表
-    if server_name == "project-file-server":
-        return [
-            {
-                "name": "read_project_file",
-                "description": "读取项目文件内容",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string", "description": "项目根目录路径"},
-                        "file_path": {"type": "string", "description": "文件相对路径"}
-                    },
-                    "required": ["project_path", "file_path"]
-                }
-            },
-            {
-                "name": "list_project_files",
-                "description": "列出项目文件结构",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string", "description": "项目根目录路径"},
-                        "directory": {"type": "string", "description": "目录路径", "default": ""},
-                        "max_depth": {"type": "integer", "description": "最大深度", "default": 2, "minimum": 1, "maximum": 5}
-                    },
-                    "required": ["project_path"]
-                }
-            },
-            {
-                "name": "get_file_metadata",
-                "description": "获取文件元数据",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "project_path": {"type": "string", "description": "项目根目录路径"},
-                        "file_path": {"type": "string", "description": "文件相对路径"}
-                    },
-                    "required": ["project_path", "file_path"]
-                }
-            },
-            {
-                "name": "get_supported_extensions",
-                "description": "获取支持的文件扩展名",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            },
-            {
-                "name": "get_server_info",
-                "description": "获取服务器信息",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            }
-        ]
-    
-    # 这里需要实现其他MCP服务器的工具列表获取逻辑
-    # 目前返回模拟响应
-    return [
-        {
-            "name": "read_file",
-            "description": "Read file content",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path"}
-                },
-                "required": ["path"]
-            }
-        },
-        {
-            "name": "write_file",
-            "description": "Write content to file",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path"},
-                    "content": {"type": "string", "description": "File content"}
-                },
-                "required": ["path", "content"]
-            }
+    try:
+        mcp_manager = get_mcp_manager()
+        tools = await mcp_manager.list_tools(server_name)
+        return tools
+
+    except Exception as e:
+        logger.error(f"Failed to list tools: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/execute")
+async def execute_tool(request: MCPToolExecuteRequest) -> Dict[str, Any]:
+    """执行MCP工具"""
+    try:
+        mcp_manager = get_mcp_manager()
+        result = await mcp_manager.execute_tool(
+            request.server_name,
+            request.tool_name,
+            request.arguments
+        )
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to execute tool: {e}")
+        return {
+            "success": False,
+            "error": str(e)
         }
-    ]
+
+
+# ==================== 资源管理端点 ====================
+
+@router.get("/resources/{server_name}")
+async def list_resources(server_name: str) -> List[Dict[str, Any]]:
+    """列出MCP服务器的所有资源"""
+    try:
+        mcp_manager = get_mcp_manager()
+        resources = await mcp_manager.list_resources(server_name)
+        return resources
+
+    except Exception as e:
+        logger.error(f"Failed to list resources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/resources/read")
+async def read_resource(request: MCPResourceReadRequest) -> Dict[str, Any]:
+    """读取MCP资源内容"""
+    try:
+        mcp_manager = get_mcp_manager()
+        result = await mcp_manager.read_resource(request.server_name, request.uri)
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to read resource: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+# ==================== 提示词管理端点 ====================
+
+@router.get("/prompts/{server_name}")
+async def list_prompts(server_name: str) -> List[Dict[str, Any]]:
+    """列出MCP服务器的所有提示词"""
+    try:
+        mcp_manager = get_mcp_manager()
+        prompts = await mcp_manager.list_prompts(server_name)
+        return prompts
+
+    except Exception as e:
+        logger.error(f"Failed to list prompts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/prompts/get")
+async def get_prompt(request: MCPPromptGetRequest) -> Dict[str, Any]:
+    """获取MCP提示词内容"""
+    try:
+        mcp_manager = get_mcp_manager()
+        result = await mcp_manager.get_prompt(
+            request.server_name,
+            request.prompt_name,
+            request.arguments
+        )
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to get prompt: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+# ==================== 内置服务器兼容端点 ====================
+# 这些端点用于向后兼容旧的内置服务器实现
+
+@router.post("/builtin/comment-server/generate")
+async def builtin_generate_comments(request: dict) -> Dict[str, Any]:
+    """内置注释生成服务器 - 生成注释"""
+    try:
+        from app.core.comment_mcp_server import comment_mcp_server
+
+        project_root = request.get("project_root")
+        file_path = request.get("file_path")
+        comment_style = request.get("comment_style", "detailed")
+
+        if not project_root or not file_path:
+            raise HTTPException(status_code=400, detail="Missing project_root or file_path")
+
+        import os
+        full_path = os.path.join(project_root, file_path)
+        result = await comment_mcp_server.generate_comments(full_path, comment_style)
+
+        return {"success": result["success"], "result": result}
+
+    except Exception as e:
+        logger.error(f"Failed to generate comments: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/builtin/comment-server/preview")
+async def builtin_preview_comments(request: dict) -> Dict[str, Any]:
+    """内置注释生成服务器 - 预览注释"""
+    try:
+        from app.core.comment_mcp_server import comment_mcp_server
+
+        project_root = request.get("project_root")
+        file_path = request.get("file_path")
+        comment_style = request.get("comment_style", "detailed")
+
+        if not project_root or not file_path:
+            raise HTTPException(status_code=400, detail="Missing project_root or file_path")
+
+        import os
+        full_path = os.path.join(project_root, file_path)
+        result = await comment_mcp_server.preview_comments(full_path, comment_style)
+
+        return {"success": result["success"], "result": result}
+
+    except Exception as e:
+        logger.error(f"Failed to preview comments: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/builtin/project-file-server/list")
+async def builtin_list_files(request: dict) -> Dict[str, Any]:
+    """内置项目文件服务器 - 列出文件"""
+    try:
+        from app.core.project_mcp_server import project_mcp_server
+
+        project_path = request.get("project_path")
+        directory = request.get("directory", "")
+        max_depth = request.get("max_depth", 2)
+
+        if not project_path:
+            raise HTTPException(status_code=400, detail="Missing project_path")
+
+        result = await project_mcp_server.list_project_files(
+            project_path,
+            directory,
+            max_depth
+        )
+
+        return {"success": result["success"], "result": result}
+
+    except Exception as e:
+        logger.error(f"Failed to list files: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/builtin/project-file-server/read")
+async def builtin_read_file(request: dict) -> Dict[str, Any]:
+    """内置项目文件服务器 - 读取文件"""
+    try:
+        from app.core.project_mcp_server import project_mcp_server
+
+        project_path = request.get("project_path")
+        file_path = request.get("file_path")
+
+        if not project_path or not file_path:
+            raise HTTPException(status_code=400, detail="Missing project_path or file_path")
+
+        result = await project_mcp_server.read_project_file(project_path, file_path)
+
+        return {"success": result["success"], "result": result}
+
+    except Exception as e:
+        logger.error(f"Failed to read file: {e}")
+        return {"success": False, "error": str(e)}

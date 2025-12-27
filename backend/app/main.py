@@ -1,18 +1,23 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import uvicorn
-import os
+import sys
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 
+# Windows上需要设置事件循环策略以支持子进程
+# 必须在导入任何其他模块之前设置，必须在创建事件循环之前设置
+if sys.platform == 'win32':
+    print("[INIT] Setting WindowsProactorEventLoopPolicy for subprocess support")
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    print("[INIT] WindowsProactorEventLoopPolicy set successfully")
+
 from app.api.routes import git, ai, mcp, projects, config, github
-from app.core.config import settings
 from app.core.git_manager import GitManager
 from app.core.ai_manager import AIManager
-from app.core.mcp_server import McpServer
+from app.core.mcp_server import MCPServerManager
 from app.core.database import init_db
-from app.core.ai_config_manager import ai_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +33,7 @@ async def lifespan(app: FastAPI):
     # 初始化管理器
     app.state.git_manager = GitManager()
     app.state.ai_manager = AIManager()
-    app.state.mcp_server = McpServer()
+    app.state.mcp_manager = MCPServerManager()
     
     # 从数据库加载仓库
     loaded_count = app.state.git_manager.load_repositories_from_database()
@@ -104,10 +109,6 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+# 注意：不要直接运行此文件
+# 请使用根目录的 run_server.py 启动服务器
+# 这确保了在Windows上正确设置事件循环策略

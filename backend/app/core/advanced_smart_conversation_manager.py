@@ -4,7 +4,6 @@ import json
 import re
 from datetime import datetime
 from app.core.ai_manager import AIManager
-from app.core.mcp_server import McpServer
 
 class IntentRecognizer:
     """意图识别器 - 基于查询内容智能选择文件"""

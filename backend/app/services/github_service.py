@@ -18,10 +18,12 @@ class GitHubService:
             self.headers["Authorization"] = f"token {access_token}"
 
     async def get_weekly_trending(self) -> List[Dict]:
-        """获取过去一周最火的10个项目"""
-        since_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        query = f"stars:>100 pushed:>{since_date}"
-        
+        """获取过去一周最火的项目"""
+        # 获取30天前的日期，扩大搜索范围
+        since_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        # 使用更简单的查询条件
+        query = f"stars:>1000 pushed:>={since_date}"
+
         try:
             return await self.search_repos(query, sort="stars", order="desc", per_page=10)
         except Exception as e:
@@ -50,6 +52,8 @@ class GitHubService:
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
                 raise HTTPException(status_code=429, detail="GitHub API速率限制，请稍后再试")
+            elif e.response.status_code == 401:
+                raise HTTPException(status_code=401, detail="GitHub认证失败，请检查access token是否正确或已过期")
             raise HTTPException(status_code=e.response.status_code, detail=f"GitHub API错误: {e}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")

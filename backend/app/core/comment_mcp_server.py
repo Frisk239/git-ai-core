@@ -4,7 +4,6 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import json
 from app.core.ai_manager import AIManager
-from app.core.mcp_server import McpServer
 
 class CommentMCPServer:
     """注释生成MCP服务器"""

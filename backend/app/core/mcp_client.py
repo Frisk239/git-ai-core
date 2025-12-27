@@ -115,6 +115,8 @@ class MCPClient:
             return self._server_info
 
         try:
+            logger.info(f"[{self.server_name}] Starting initialization...")
+
             # 创建初始化请求
             request = MCPProtocolUtils.create_initialize_request(
                 capabilities={
@@ -123,8 +125,12 @@ class MCPClient:
                 }
             )
 
+            logger.info(f"[{self.server_name}] Sending initialize request (id={request.id})...")
+
             # 发送请求并获取响应
             response = await self._send_request(request)
+
+            logger.info(f"[{self.server_name}] Received initialize response")
 
             if not response.result:
                 raise MCPClientError("Initialize response missing result")

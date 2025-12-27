@@ -169,6 +169,10 @@ class MCPStdioTransport(MCPTransport):
             print(f"[DEBUG] MCP server process started successfully")
             logger.info("MCP server process started successfully")
 
+            # 启动后台监听任务来接收服务器的消息
+            self._read_task = asyncio.create_task(self._read_messages())
+            logger.info("Started background message listener")
+
         except FileNotFoundError as e:
             print(f"[DEBUG] FileNotFoundError: {e}")
             logger.error(f"Command not found: {e}")
@@ -277,6 +281,30 @@ class MCPStdioTransport(MCPTransport):
             logger.error(f"Error reading stderr: {e}")
 
         return ""
+
+    async def _read_messages(self) -> None:
+        """后台任务：持续读取服务器的消息并传递给消息处理器"""
+        while self._is_connected:
+            try:
+                message = await self.receive_message()
+                logger.debug(f"Received message from server: {type(message).__name__}")
+
+                # 调用消息处理器
+                if self._message_handler:
+                    await self._message_handler(message)
+            except asyncio.CancelledError:
+                logger.info("Message listener cancelled")
+                break
+            except MCPTransportError as e:
+                if self._is_connected:
+                    logger.error(f"Error reading message: {e}")
+                    self._is_connected = False
+                break
+            except Exception as e:
+                logger.error(f"Unexpected error in message listener: {e}")
+                if self._is_connected:
+                    self._is_connected = False
+                break
 
 
 class MCPHttpTransport(MCPTransport):

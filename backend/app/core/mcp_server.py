@@ -309,18 +309,30 @@ class MCPServerManager:
             # 获取服务器信息
             server_info = client.get_server_info()
 
-            # 列出工具
-            tools = await client.list_tools(use_cache=False)
+            # 列出工具（如果失败则返回空列表）
+            tools = []
+            try:
+                tools = await client.list_tools(use_cache=False)
+            except Exception as e:
+                logger.warning(f"Failed to list tools: {e}")
 
-            # 列出资源
-            resources = await client.list_resources(use_cache=False)
+            # 列出资源（如果失败则返回空列表）
+            resources = []
+            try:
+                resources = await client.list_resources(use_cache=False)
+            except Exception as e:
+                logger.warning(f"Failed to list resources: {e}")
 
-            # 列出提示词
-            prompts = await client.list_prompts(use_cache=False)
+            # 列出提示词（如果失败则返回空列表）
+            prompts = []
+            try:
+                prompts = await client.list_prompts(use_cache=False)
+            except Exception as e:
+                logger.warning(f"Failed to list prompts: {e}")
 
             return {
                 "success": True,
-                "message": "连接测试成功",
+                "message": f"连接测试成功！服务器: {server_info.name}, 工具数: {len(tools)}, 资源数: {len(resources)}, 提示词数: {len(prompts)}",
                 "server_info": {
                     "name": server_info.name,
                     "version": server_info.version,

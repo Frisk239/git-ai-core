@@ -188,3 +188,4 @@ logs/
 backend/app/api/AI-Config.json
 backend/AI-Config.json
 backend/github-config.json
+backend/mcp_servers.json

@@ -24,6 +24,7 @@ from app.core.tools import (
 from app.core.task.task_state import TaskState
 from app.core.task.tools_converter import tools_to_openai_functions, parse_tool_call_arguments
 from app.core.task.prompt_builder import PromptBuilder
+from app.core.context import TokenCounter, CompressionStrategy
 
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,10 @@ class TaskEngine:
         self.tool_coordinator = tool_coordinator or get_tool_coordinator()
         self.prompt_builder = PromptBuilder(self.tool_coordinator)
         self.tools_definition = tools_to_openai_functions(self.tool_coordinator)
+
+        # 上下文管理
+        self.token_counter = TokenCounter()
+        self.compression_strategy = CompressionStrategy(self.ai_manager)
 
         # 配置
         self.max_iterations = max_iterations
@@ -197,8 +202,8 @@ class TaskEngine:
 
         类似 Cline 的 attemptApiRequest + 工具执行
         """
-        # 1. 构建消息历史
-        messages = self._build_messages(user_content)
+        # 1. 构建消息历史（带上下文压缩）
+        messages = await self._build_messages(user_content, ai_config)
 
         # 2. 生成系统提示词
         system_prompt = await self.prompt_builder.build_prompt(context)
@@ -347,11 +352,19 @@ class TaskEngine:
                 "iteration": iteration
             }
 
-    def _build_messages(self, user_content: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """构建消息列表"""
+    async def _build_messages(
+        self,
+        user_content: List[Dict[str, Any]],
+        ai_config: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        构建消息列表（带上下文压缩）
+
+        参考 Cline 的实现，在构建消息前检查是否需要压缩
+        """
         messages = []
 
-        # 添加历史消息（排除工具结果消息，因为它们会重新构建）
+        # 添加历史消息
         for msg in self.conversation_history:
             messages.append({
                 "role": msg["role"],
@@ -365,6 +378,34 @@ class TaskEngine:
                     "role": "user",
                     "content": content["text"]
                 })
+
+        # 检查是否需要压缩上下文
+        model = ai_config.get("ai_model", "deepseek-chat")
+
+        if self.compression_strategy.must_compress(messages, model):
+            print(f"\n⚠️  上下文即将溢出，触发压缩...")
+
+            # 压缩对话历史
+            compressed = await self.compression_strategy.compress_conversation_history(
+                messages,
+                model,
+                ai_config
+            )
+
+            # 更新对话历史（保留压缩后的版本）
+            # 注意：这里只更新用于 API 请求的消息，不直接修改 self.conversation_history
+            # 因为还需要保留完整历史用于其他目的
+
+            print(f"✅ 上下文压缩完成")
+
+            # 返回压缩后的消息
+            return compressed
+
+        elif self.compression_strategy.should_compress(messages, model):
+            print(f"\n⚡  上下文使用量较高，建议压缩")
+            info = self.token_counter.get_compression_info(messages, model)
+            print(f"   - 当前使用: {info['estimated_tokens']} tokens ({info['usage_percentage']*100:.1f}%)")
+            print(f"   - 最大允许: {info['max_allowed']} tokens")
 
         return messages
 

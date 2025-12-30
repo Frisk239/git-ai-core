@@ -390,6 +390,251 @@ class MoonshotProvider(AIProvider):
         except Exception:
             return False
 
+class GLMCodingProvider(AIProvider):
+    """智谱清言 GLM 编码套餐供应商 - 专用编码 API"""
+
+    async def chat(self, model: str, messages: List[Dict[str, str]], api_key: str, **kwargs) -> Dict[str, Any]:
+        # GLM 编码套餐专用 API 地址
+        base_url = kwargs.get('base_url', 'https://open.bigmodel.cn/api/coding/paas/v4')
+
+        client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url
+        )
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 8000),
+            top_p=kwargs.get('top_p', 0.9),
+        )
+
+        return {
+            "content": response.choices[0].message.content,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+        }
+
+    async def chat_with_tools(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        api_key: str,
+        tools: List[Dict[str, Any]],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """GLM 编码套餐支持 OpenAI 兼容的 tools API"""
+        base_url = kwargs.get('base_url', 'https://open.bigmodel.cn/api/coding/paas/v4')
+
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 8000),
+        )
+
+        message = response.choices[0].message
+
+        # 提取工具调用
+        tool_calls = []
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                tool_calls.append({
+                    "id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "arguments": tool_call.function.arguments
+                })
+
+        return {
+            "content": message.content or "",
+            "tool_calls": tool_calls,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+        }
+
+    async def test_connection(self, api_key: str, base_url: Optional[str] = None) -> bool:
+        try:
+            base_url = base_url or 'https://open.bigmodel.cn/api/coding/paas/v4'
+            client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+            await client.models.list()
+            return True
+        except Exception:
+            return False
+
+class GLMProvider(AIProvider):
+    """智谱清言 GLM 普通版本供应商 - 通用对话 API"""
+
+    async def chat(self, model: str, messages: List[Dict[str, str]], api_key: str, **kwargs) -> Dict[str, Any]:
+        # GLM 普通版本 API 地址
+        base_url = kwargs.get('base_url', 'https://open.bigmodel.cn/api/paas/v4')
+
+        client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url
+        )
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 8000),
+            top_p=kwargs.get('top_p', 0.9),
+        )
+
+        return {
+            "content": response.choices[0].message.content,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+        }
+
+    async def chat_with_tools(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        api_key: str,
+        tools: List[Dict[str, Any]],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """GLM 普通版本支持 OpenAI 兼容的 tools API"""
+        base_url = kwargs.get('base_url', 'https://open.bigmodel.cn/api/paas/v4')
+
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 8000),
+        )
+
+        message = response.choices[0].message
+
+        # 提取工具调用
+        tool_calls = []
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                tool_calls.append({
+                    "id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "arguments": tool_call.function.arguments
+                })
+
+        return {
+            "content": message.content or "",
+            "tool_calls": tool_calls,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+        }
+
+    async def test_connection(self, api_key: str, base_url: Optional[str] = None) -> bool:
+        try:
+            base_url = base_url or 'https://open.bigmodel.cn/api/paas/v4'
+            client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+            await client.models.list()
+            return True
+        except Exception:
+            return False
+
+class OpenRouterProvider(AIProvider):
+    """OpenRouter 供应商实现 - 支持 100+ 模型"""
+
+    async def chat(self, model: str, messages: List[Dict[str, str]], api_key: str, **kwargs) -> Dict[str, Any]:
+        client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=kwargs.get('base_url', 'https://openrouter.ai/api/v1')
+        )
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 2000),
+        )
+
+        return {
+            "content": response.choices[0].message.content,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+        }
+
+    async def chat_with_tools(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        api_key: str,
+        tools: List[Dict[str, Any]],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """OpenRouter 支持 OpenAI 兼容的 tools API"""
+        client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=kwargs.get('base_url', 'https://openrouter.ai/api/v1')
+        )
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', 2000),
+        )
+
+        message = response.choices[0].message
+
+        # 提取工具调用
+        tool_calls = []
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                tool_calls.append({
+                    "id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "arguments": tool_call.function.arguments
+                })
+
+        return {
+            "content": message.content or "",
+            "tool_calls": tool_calls,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+        }
+
+    async def test_connection(self, api_key: str, base_url: Optional[str] = None) -> bool:
+        try:
+            client = openai.AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url or 'https://openrouter.ai/api/v1'
+            )
+            await client.models.list()
+            return True
+        except Exception:
+            return False
+
 class AIManager:
     """AI管理器 - 仿照Cline的设计"""
 
@@ -399,7 +644,10 @@ class AIManager:
             'anthropic': AnthropicProvider(),
             'gemini': GeminiProvider(),
             'deepseek': DeepSeekProvider(),
-            'moonshot': MoonshotProvider()
+            'moonshot': MoonshotProvider(),
+            'glm_coding': GLMCodingProvider(),  # 智谱编码套餐
+            'glm': GLMProvider(),  # 智谱普通版本
+            'openrouter': OpenRouterProvider(),  # OpenRouter
         }
 
         self.provider_configs = {
@@ -441,6 +689,36 @@ class AIManager:
                 'description': 'Moonshot AI models',
                 'models': ['kimi-k2-0711-preview', 'kimi-k2-turbo-preview', 'moonshot-v1-128k-vision-preview'],
                 'default_base_url': 'https://api.moonshot.ai/v1',
+                'requires_api_key': True
+            },
+            'glm_coding': {
+                'name': '智谱 GLM 编码套餐',
+                'icon': '💻',
+                'description': '智谱清言编码套餐专用 API - 适合代码生成和编程任务',
+                'models': ['glm-4.7', 'glm-4.0', 'glm-4-plus', 'glm-4-air'],
+                'default_base_url': 'https://open.bigmodel.cn/api/coding/paas/v4',
+                'requires_api_key': True
+            },
+            'glm': {
+                'name': '智谱 GLM',
+                'icon': '🧠',
+                'description': '智谱清言通用对话 API',
+                'models': ['glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4.5'],
+                'default_base_url': 'https://open.bigmodel.cn/api/paas/v4',
+                'requires_api_key': True
+            },
+            'openrouter': {
+                'name': 'OpenRouter',
+                'icon': '🔀',
+                'description': 'OpenRouter - 支持 100+ 模型的统一接口',
+                'models': [
+                    'anthropic/claude-3.5-sonnet',
+                    'openai/gpt-4o',
+                    'google/gemini-2.0-flash',
+                    'deepseek/deepseek-r1',
+                    'meta-llama/llama-3.1-70b-instruct'
+                ],
+                'default_base_url': 'https://openrouter.ai/api/v1',
                 'requires_api_key': True
             }
         }

@@ -6,9 +6,11 @@
 """
 
 import logging
+import json
 from typing import Dict, Any
 
 from app.core.tools import ToolCoordinator
+from app.core.mcp_server import MCPServerManager
 
 
 logger = logging.getLogger(__name__)
@@ -24,13 +26,16 @@ class PromptBuilder:
         """
         构建系统提示词（使用 OpenAI Tools API）
         """
-        # 获取工具描述
-        tools_description = self._build_tools_description()
+        # 获取工具描述（排除 MCP 工具，因为会在单独的章节中说明）
+        tools_description = self._build_tools_description(exclude_mcp=True)
+
+        # 获取 MCP 服务器信息
+        mcp_section = await self._build_mcp_section()
 
         # 获取仓库路径
         repo_path = getattr(context, 'repository_path', 'N/A')
 
-        # 构建提示词
+        # 构建基础提示词
         prompt = f"""# Git AI Core - AI驱动的Git项目智能分析助手
 
 你是一个专业的 AI 编码助手，专门帮助开发者理解和分析 Git 仓库。
@@ -74,6 +79,8 @@ class PromptBuilder:
 4. **分析结果**：基于工具返回的结果进行分析
 5. **给出答案**：向用户提供清晰的答案
 
+{mcp_section}
+
 ## Git 仓库信息
 
 - 当前仓库路径：{repo_path}
@@ -90,12 +97,21 @@ class PromptBuilder:
 """
         return prompt
 
-    def _build_tools_description(self) -> str:
-        """构建工具列表描述"""
+    def _build_tools_description(self, exclude_mcp: bool = False) -> str:
+        """
+        构建工具列表描述
+
+        Args:
+            exclude_mcp: 是否排除 MCP 工具（因为会在单独章节中说明）
+        """
         tools = self.tool_coordinator.list_tools()
 
         descriptions = []
         for tool in tools:
+            # 跳过 MCP 工具（会在单独章节说明）
+            if exclude_mcp and tool.category == "mcp":
+                continue
+
             descriptions.append(f"**{tool.name}**: {tool.description}")
 
             # 添加参数说明
@@ -108,3 +124,121 @@ class PromptBuilder:
             descriptions.append("")  # 空行分隔
 
         return "\n".join(descriptions)
+
+    async def _build_mcp_section(self) -> str:
+        """
+        构建 MCP 服务器信息章节
+
+        参考 Cline 的 components/mcp.ts 实现
+        """
+        try:
+            # 获取 MCP 服务器管理器
+            from app.core.tools.handlers.mcp_handler import get_mcp_server_manager
+            mcp_manager = get_mcp_server_manager()
+
+            # 获取所有服务器配置
+            servers_config = mcp_manager.list_servers()
+
+            # 如果没有配置 MCP 服务器，返回空字符串
+            if not servers_config:
+                return ""
+
+            # 构建 MCP 章节
+            mcp_servers_info = []
+
+            for server_name, config in servers_config.items():
+                # 跳过禁用的服务器
+                if not config.get("enabled", True):
+                    continue
+
+                # 获取服务器状态
+                status_info = await mcp_manager.get_server_status(server_name)
+
+                # 只显示可用的服务器
+                if status_info.get("status") == "not_configured":
+                    continue
+
+                server_desc = config.get("description", "")
+                transport_type = config.get("transportType", "stdio")
+
+                server_section = f"### {server_name}\n"
+                if server_desc:
+                    server_section += f"**描述**: {server_desc}\n\n"
+                server_section += f"**传输类型**: {transport_type}\n\n"
+                server_section += f"**状态**: {status_info.get('status', 'unknown')}\n\n"
+
+                # 如果服务器正在运行，获取工具和资源列表
+                if status_info.get("connected"):
+                    try:
+                        # 获取工具列表
+                        tools = await mcp_manager.list_tools(server_name)
+                        if tools:
+                            server_section += "**可用工具**:\n\n"
+                            for tool in tools:
+                                tool_name = tool["name"]
+                                tool_desc = tool.get("description", tool_name)
+                                server_section += f"- `{tool_name}`: {tool_desc}\n"
+
+                                # 添加参数 schema
+                                input_schema = tool.get("input_schema", {})
+                                if input_schema and "properties" in input_schema:
+                                    server_section += f"  参数: {json.dumps(input_schema, ensure_ascii=False)}\n"
+                                server_section += "\n"
+
+                        # 获取资源列表
+                        resources = await mcp_manager.list_resources(server_name)
+                        if resources:
+                            server_section += "**可用资源**:\n\n"
+                            for resource in resources:
+                                uri = resource["uri"]
+                                res_name = resource.get("name", "")
+                                res_desc = resource.get("description", "")
+                                server_section += f"- `{uri}`"
+                                if res_name:
+                                    server_section += f" ({res_name})"
+                                if res_desc:
+                                    server_section += f": {res_desc}"
+                                server_section += "\n"
+                            server_section += "\n"
+
+                    except Exception as e:
+                        logger.warning(f"获取 {server_name} 的工具/资源列表失败: {e}")
+
+                mcp_servers_info.append(server_section)
+
+            # 如果没有可用的 MCP 服务器
+            if not mcp_servers_info:
+                return ""
+
+            # 构建 MCP 章节
+            mcp_section = """## MCP 服务器
+
+Model Context Protocol (MCP) 服务器可以扩展你的能力，提供额外的工具和资源。
+
+### MCP 工具使用方法
+
+当需要使用 MCP 服务器的工具时，使用以下工具：
+
+1. **use_mcp_tool** - 调用 MCP 服务器的工具
+   - `server_name`: MCP 服务器名称
+   - `tool_name`: 要调用的工具名称
+   - `arguments`: 工具参数（JSON 字符串）
+
+2. **access_mcp_resource** - 访问 MCP 服务器的资源
+   - `server_name`: MCP 服务器名称
+   - `uri`: 资源 URI
+
+3. **list_mcp_servers** - 列出所有可用的 MCP 服务器及其工具/资源
+
+### 已连接的 MCP 服务器
+
+"""
+
+            mcp_section += "\n".join(mcp_servers_info)
+
+            return mcp_section
+
+        except Exception as e:
+            logger.error(f"构建 MCP 章节失败: {e}", exc_info=True)
+            return ""
+

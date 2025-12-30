@@ -502,9 +502,20 @@ class TaskEngine:
 
                 # 格式化数据
                 if result["data"]:
-                    data_str = json.dumps(result["data"], ensure_ascii=False, indent=2)
+                    data = result["data"]
+
+                    # 如果数据已经是字符串，直接使用
+                    if isinstance(data, str):
+                        data_str = data
+                    # 如果数据是字典或列表，序列化为 JSON
+                    elif isinstance(data, (dict, list)):
+                        data_str = json.dumps(data, ensure_ascii=False, indent=2)
+                    # 其他类型转换为字符串
+                    else:
+                        data_str = str(data)
+
                     formatted.append(f"<data>")
-                    formatted.append(f"```json\n{data_str}\n```")
+                    formatted.append(f"```\n{data_str}\n```")
                     formatted.append(f"</data>")
 
                 formatted.append(f"</response>")

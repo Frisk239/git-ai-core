@@ -104,12 +104,77 @@ class MCPStdioTransport(MCPTransport):
             print(f"[DEBUG] Starting connect() for command: {self.command}")
             logger.info(f"[DEBUG] Starting connect() for command: {self.command}")
 
-            # 检查当前事件循环类型
-            import asyncio
-            current_loop = asyncio.get_running_loop()
-            print(f"[DEBUG] Current event loop type: {type(current_loop).__name__}")
-            print(f"[DEBUG] Event loop policy: {type(asyncio.get_event_loop_policy()).__name__}")
+            # Windows 上统一使用 subprocess.Popen
+            if os.name == 'nt':
+                # 检查当前事件循环类型
+                import asyncio
+                current_loop = asyncio.get_running_loop()
+                loop_type = type(current_loop).__name__
+                print(f"[DEBUG] Current event loop type: {loop_type}")
+                print(f"[DEBUG] Event loop policy: {type(asyncio.get_event_loop_policy()).__name__}")
 
+                # Windows 上始终使用 subprocess.Popen
+                logger.info("Using subprocess.Popen on Windows for subprocess support")
+                print("[DEBUG] Using subprocess.Popen approach...")
+
+                # 对于 Windows，使用 subprocess.Popen + asyncio 的方式
+                import subprocess
+
+                # 准备环境变量
+                process_env = None
+                if self.env:
+                    process_env = os.environ.copy()
+                    process_env.update(self.env)
+
+                # 查找命令
+                command_path = self.command
+                if os.path.isfile(self.command):
+                    command_path = self.command
+                else:
+                    import shutil
+                    resolved = shutil.which(self.command)
+                    if not resolved:
+                        raise FileNotFoundError(f"Command not found: {self.command}")
+                    command_path = resolved
+
+                print(f"[DEBUG] Found command at: {command_path}")
+                logger.info(f"Found command at: {command_path}")
+
+                # 使用 subprocess.Popen 启动进程
+                full_cmd = [command_path] + self.args
+                logger.info(f"Starting MCP server with Popen: {' '.join(full_cmd)}")
+
+                self.process = subprocess.Popen(
+                    full_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=process_env,
+                    cwd=self.cwd,
+                    bufsize=0,  # 无缓冲
+                    text=False  # 使用字节模式
+                )
+
+                # 等待一小段时间确保进程启动
+                await asyncio.sleep(0.1)
+
+                # 检查进程是否还在运行
+                if self.process.poll() is not None:
+                    stderr_output = self.process.stderr.read().decode('utf-8', errors='ignore')
+                    error_msg = stderr_output.strip() if stderr_output else f"Process exited with code {self.process.returncode}"
+                    logger.error(f"Process exited immediately: {error_msg}")
+                    raise MCPTransportError(f"Process exited: {error_msg}")
+
+                self._is_connected = True
+                print(f"[DEBUG] MCP server process started successfully")
+                logger.info("MCP server process started successfully")
+
+                # 启动后台监听任务
+                self._read_task = asyncio.create_task(self._read_messages())
+                logger.info("Started background message listener")
+                return
+
+            # 非 Windows 系统 - 使用 asyncio subprocess
             # 准备环境变量
             process_env = None
             if self.env:
@@ -195,12 +260,27 @@ class MCPStdioTransport(MCPTransport):
                     self.process.stdin.close()
 
                 # 等待进程结束（最多5秒）
-                try:
-                    await asyncio.wait_for(self.process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    # 超时则强制杀死
-                    self.process.kill()
-                    await self.process.wait()
+                import subprocess
+                if isinstance(self.process, subprocess.Popen):
+                    # subprocess.Popen - 使用 executor 包装同步 wait()
+                    loop = asyncio.get_event_loop()
+                    try:
+                        await asyncio.wait_for(
+                            loop.run_in_executor(None, self.process.wait),
+                            timeout=5.0
+                        )
+                    except asyncio.TimeoutError:
+                        # 超时则强制杀死
+                        self.process.kill()
+                        loop.run_in_executor(None, self.process.wait)
+                else:
+                    # asyncio subprocess - 直接使用 await
+                    try:
+                        await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        # 超时则强制杀死
+                        self.process.kill()
+                        await self.process.wait()
 
                 logger.info("MCP server process stopped")
             except Exception as e:
@@ -230,7 +310,13 @@ class MCPStdioTransport(MCPTransport):
 
             # 写入stdin
             self.process.stdin.write(message_data)
-            await self.process.stdin.drain()
+
+            # 对于 subprocess.Popen，需要 flush 但不需要 drain
+            import subprocess
+            if isinstance(self.process, subprocess.Popen):
+                self.process.stdin.flush()
+            else:
+                await self.process.stdin.drain()
 
             logger.debug(f"Sent message: {message.method}")
 
@@ -245,21 +331,41 @@ class MCPStdioTransport(MCPTransport):
             raise MCPTransportError("Process not connected")
 
         try:
-            # 读取一行（以\n分隔的JSON）
-            line = await self.process.stdout.readline()
+            # 检查是否是同步 subprocess.Popen 对象
+            import subprocess
+            if isinstance(self.process, subprocess.Popen):
+                # 使用 asyncio 来包装同步读取
+                loop = asyncio.get_event_loop()
+                line = await loop.run_in_executor(None, self.process.stdout.readline)
 
-            if not line:
-                # EOF reached
-                self._is_connected = False
-                raise MCPTransportError("Process closed connection")
+                if not line:
+                    # EOF reached
+                    self._is_connected = False
+                    raise MCPTransportError("Process closed connection")
 
-            # 解码并解析
-            data = line.decode("utf-8").strip()
-            message = JSONRPCCodec.decode(data)
+                # 解码并解析
+                data = line.decode("utf-8").strip()
+                message = JSONRPCCodec.decode(data)
 
-            logger.debug(f"Received message: {type(message).__name__}")
+                logger.debug(f"Received message: {type(message).__name__}")
+                return message
+            else:
+                # asyncio subprocess - 使用 await
+                # 读取一行（以\n分隔的JSON）
+                line = await self.process.stdout.readline()
 
-            return message
+                if not line:
+                    # EOF reached
+                    self._is_connected = False
+                    raise MCPTransportError("Process closed connection")
+
+                # 解码并解析
+                data = line.decode("utf-8").strip()
+                message = JSONRPCCodec.decode(data)
+
+                logger.debug(f"Received message: {type(message).__name__}")
+
+                return message
 
         except MCPTransportError:
             raise
@@ -274,7 +380,15 @@ class MCPStdioTransport(MCPTransport):
             return ""
 
         try:
-            line = await self.process.stderr.readline()
+            import subprocess
+            if isinstance(self.process, subprocess.Popen):
+                # Windows subprocess.Popen - 使用 executor 包装同步读取
+                loop = asyncio.get_event_loop()
+                line = await loop.run_in_executor(None, self.process.stderr.readline)
+            else:
+                # asyncio subprocess - 直接使用 await
+                line = await self.process.stderr.readline()
+
             if line:
                 return line.decode("utf-8", errors="ignore").strip()
         except Exception as e:

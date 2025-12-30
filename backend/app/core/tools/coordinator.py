@@ -167,6 +167,11 @@ class ToolCoordinator:
         from .handlers.search_handler import SearchFilesToolHandler
         from .handlers.write_handler import WriteToFileToolHandler, ReplaceInFileToolHandler
         from .handlers.code_handler import ListCodeDefinitionsToolHandler
+        from .handlers.mcp_handler import (
+            UseMcpToolHandler,
+            AccessMcpResourceHandler,
+            ListMcpServersHandler
+        )
 
         # 注册文件工具
         self.register(FileReadToolHandler())
@@ -185,6 +190,11 @@ class ToolCoordinator:
 
         # 注册代码分析工具
         self.register(ListCodeDefinitionsToolHandler())
+
+        # 注册 MCP 工具
+        self.register(UseMcpToolHandler())
+        self.register(AccessMcpResourceHandler())
+        self.register(ListMcpServersHandler())
 
         self._initialized = True
         logger.info(f"默认工具初始化完成，共注册 {len(self.handlers)} 个工具")

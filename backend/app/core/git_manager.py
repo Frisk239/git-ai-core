@@ -215,8 +215,8 @@ class GitProject:
             return {}
 
         try:
-            # 获取未跟踪的文件
-            untracked_files = [item.a_path for item in self.repo.untracked_files]
+            # 获取未跟踪的文件 (untracked_files 是字符串列表)
+            untracked_files = list(self.repo.untracked_files)
 
             # 获取已修改的文件
             modified_files = [item.a_path for item in self.repo.index.diff(None)]

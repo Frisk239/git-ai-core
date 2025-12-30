@@ -1,8 +1,8 @@
 {
-  "ai_provider": "deepseek",
-  "ai_model": "deepseek-chat",
-  "ai_api_key": "sk-b220ecfa259f47fbb1c2f873327933c8",
-  "ai_base_url": "https://api.deepseek.com/v1",
+  "ai_provider": "moonshot",
+  "ai_model": "kimi-k2-0711-preview",
+  "ai_api_key": "sk-5RMiZ3iYOwphBIiJE7YgfIpPDVXnHXj3UYzSyqJbZ1IxhmGT",
+  "ai_base_url": "china",
   "temperature": 0.7,
   "max_tokens": 2000,
   "top_p": 1.0,

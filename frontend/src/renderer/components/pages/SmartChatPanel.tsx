@@ -245,7 +245,7 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
     }
   };
 
-  // 发送消息
+  // 发送消息 - 使用新的工具调用系统
   const sendMessage = async () => {
     if (!inputMessage.trim() || isLoading || !isInitialized) return;
 
@@ -257,36 +257,111 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const messageToSend = inputMessage;
     setInputMessage("");
     setIsLoading(true);
 
+    // 创建一个临时的助手消息用于显示进度
+    const tempAssistantId = `assistant-${Date.now()}`;
+    const assistantMessage: Message = {
+      id: tempAssistantId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+      toolCalls: [],
+    };
+
+    setMessages((prev) => [...prev, assistantMessage]);
+
     try {
-      const response = await api.smartChat(
-        conversationId,
-        inputMessage,
-        projectPath
-      );
+      await api.smartChatV2(messageToSend, projectPath, (event: any) => {
+        // 处理不同类型的事件
+        switch (event.type) {
+          case "api_request_started":
+            console.log(`[迭代 ${event.iteration}] API 请求开始`);
+            break;
 
-      // 处理工具调用
-      const toolCalls: ToolCall[] =
-        response.tool_calls?.map((call: any, index: number) => ({
-          id: `tool-${Date.now()}-${index}`,
-          toolName: call.tool_name,
-          arguments: call.arguments,
-          result: call.result,
-          status: call.result?.success ? "success" : "error",
-          reason: call.reason,
-        })) || [];
+          case "api_response":
+            // 更新助手消息内容
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === tempAssistantId
+                  ? { ...msg, content: event.content || "" }
+                  : msg
+              )
+            );
+            break;
 
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: response.response,
-        timestamp: new Date(),
-        toolCalls,
-      };
+          case "tool_calls_detected":
+            // 显示工具调用
+            const toolCalls: ToolCall[] = event.tool_calls.map(
+              (call: any, index: number) => ({
+                id: `tool-${Date.now()}-${index}`,
+                toolName: call.name,
+                arguments: call.parameters,
+                status: "pending" as const,
+              })
+            );
 
-      setMessages((prev) => [...prev, assistantMessage]);
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === tempAssistantId
+                  ? { ...msg, toolCalls: [...(msg.toolCalls || []), ...toolCalls] }
+                  : msg
+              )
+            );
+            break;
+
+          case "tool_execution_started":
+            // 更新工具状态为执行中
+            setMessages((prev) =>
+              prev.map((msg) => ({
+                ...msg,
+                toolCalls: msg.toolCalls?.map((tc) =>
+                  tc.toolName === event.tool_name
+                    ? { ...tc, status: "pending" }
+                    : tc
+                ),
+              }))
+            );
+            break;
+
+          case "tool_execution_completed":
+            // 更新工具状态和结果
+            setMessages((prev) =>
+              prev.map((msg) => ({
+                ...msg,
+                toolCalls: msg.toolCalls?.map((tc) =>
+                  tc.toolName === event.tool_name
+                    ? {
+                        ...tc,
+                        status: event.result.success ? "success" : "error",
+                        result: event.result,
+                      }
+                    : tc
+                ),
+              }))
+            );
+            break;
+
+          case "completion":
+            // 任务完成，显示最终答案
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === tempAssistantId
+                  ? { ...msg, content: event.content }
+                  : msg
+              )
+            );
+            setIsLoading(false);
+            break;
+
+          case "error":
+            toast.error(`错误: ${event.message}`);
+            setIsLoading(false);
+            break;
+        }
+      });
     } catch (error) {
       console.error("发送消息失败:", error);
       toast.error("发送消息失败");
@@ -298,7 +373,6 @@ export const SmartChatPanel: React.FC<SmartChatPanelProps> = ({
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
-    } finally {
       setIsLoading(false);
     }
   };

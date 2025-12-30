@@ -40,7 +40,7 @@ class TaskEngine:
         self,
         ai_manager: Optional[AIManager] = None,
         tool_coordinator: Optional[ToolCoordinator] = None,
-        max_iterations: int = 10,
+        max_iterations: int = 999,  # 取消迭代限制，设置为很大的值
         max_consecutive_mistakes: int = 3
     ):
         self.ai_manager = ai_manager or AIManager()
@@ -73,6 +73,14 @@ class TaskEngine:
         Yields:
             任务进度信息（用于流式响应）
         """
+        print("\n" + "="*80)
+        print(f"🚀 开始执行任务")
+        print("="*80)
+        print(f"📝 用户输入: {user_input}")
+        print(f"📁 仓库路径: {repository_path}")
+        print(f"🤖 AI 配置: {ai_config.get('ai_provider')} - {ai_config.get('ai_model')}")
+        print("="*80 + "\n")
+
         logger.info(f"=== 开始任务 ===")
         logger.info(f"用户输入: {user_input[:100]}...")
         logger.info(f"仓库路径: {repository_path}")
@@ -96,11 +104,18 @@ class TaskEngine:
             async for event in self._task_loop(user_content, context, ai_config):
                 yield event
         except Exception as e:
+            print(f"\n{'='*80}")
+            print(f"❌ 任务执行失败: {e}")
+            print(f"{'='*80}\n")
             logger.error(f"任务执行失败: {e}", exc_info=True)
             yield {
                 "type": "error",
                 "message": f"任务执行失败: {str(e)}"
             }
+
+        print("\n" + "="*80)
+        print("✅ 任务执行完成")
+        print("="*80 + "\n")
 
         logger.info(f"=== 任务结束 ===")
 
@@ -123,6 +138,7 @@ class TaskEngine:
 
             # 检查中止标志
             if self.task_state.should_abort():
+                print(f"\n⚠️  任务被中止")
                 logger.info("任务被中止")
                 yield {
                     "type": "aborted",
@@ -132,6 +148,7 @@ class TaskEngine:
 
             # 检查错误次数
             if self.task_state.consecutive_mistake_count >= self.max_consecutive_mistakes:
+                print(f"\n❌ 达到最大连续错误次数: {self.task_state.consecutive_mistake_count}")
                 logger.error(f"达到最大连续错误次数: {self.task_state.consecutive_mistake_count}")
                 yield {
                     "type": "error",
@@ -139,6 +156,10 @@ class TaskEngine:
                     "iteration": iteration
                 }
                 break
+
+            print(f"\n{'─'*80}")
+            print(f"🔄 迭代 {iteration}/{self.max_iterations}")
+            print(f"{'─'*80}\n")
 
             logger.info(f"=== 迭代 {iteration} ===")
 
@@ -154,6 +175,7 @@ class TaskEngine:
                     self.task_state.increment_mistake_count()
 
             if did_end_loop:
+                print(f"\n✅ 任务完成，退出循环")
                 logger.info("任务完成")
                 break
             else:
@@ -184,6 +206,10 @@ class TaskEngine:
         # 3. 调用 AI（使用 Tools API）
         self.task_state.increment_api_request_count()
 
+        print(f"📤 发送 API 请求...")
+        print(f"   - 消息数量: {len(messages)}")
+        print(f"   - 系统提示词长度: {len(system_prompt)} 字符")
+
         yield {
             "type": "api_request_started",
             "iteration": iteration,
@@ -200,6 +226,14 @@ class TaskEngine:
             assistant_content = response.get("content", "")
             tool_calls_api = response.get("tool_calls", [])
 
+            print(f"📥 收到 AI 响应")
+            print(f"   - 响应内容长度: {len(assistant_content)} 字符")
+            print(f"   - 工具调用数量: {len(tool_calls_api)}")
+
+            if assistant_content:
+                preview = assistant_content[:100] + "..." if len(assistant_content) > 100 else assistant_content
+                print(f"   - 内容预览: {preview}")
+
             yield {
                 "type": "api_response",
                 "content": assistant_content,
@@ -215,7 +249,9 @@ class TaskEngine:
             # 6. 处理工具调用
             if not tool_calls_api:
                 # 没有工具调用，任务可能完成
+                print(f"\n✨ 没有检测到工具调用，任务可能已完成")
                 if assistant_content:
+                    print(f"📝 最终响应: {assistant_content[:200]}...")
                     yield {
                         "type": "completion",
                         "content": assistant_content,
@@ -240,6 +276,16 @@ class TaskEngine:
                 return
 
             # 8. 执行工具
+            print(f"\n🔧 检测到 {len(tool_calls)} 个工具调用:")
+
+            for i, tc in enumerate(tool_calls, 1):
+                tool_name = tc["name"]
+                params = tc["parameters"]
+                print(f"   {i}. {tool_name}")
+                if params:
+                    params_str = ", ".join([f"{k}={v}" for k, v in params.items()])
+                    print(f"      参数: {params_str}")
+
             yield {
                 "type": "tool_calls_detected",
                 "tool_calls": tool_calls,
@@ -250,19 +296,35 @@ class TaskEngine:
             tool_results = []
 
             for tool_call_dict in tool_calls:
+                tool_name = tool_call_dict.get("name")
+                print(f"\n⚙️  执行工具: {tool_name}")
+
                 # 流式返回工具执行进度
                 yield {
                     "type": "tool_execution_started",
-                    "tool_name": tool_call_dict.get("name"),
+                    "tool_name": tool_name,
                     "iteration": iteration
                 }
 
                 # 执行工具
                 result = await self._execute_tool(tool_call_dict, context)
 
+                # 打印执行结果
+                if result["success"]:
+                    print(f"   ✅ 工具执行成功")
+                    data = result.get("data")
+                    if data:
+                        data_str = str(data)
+                        if len(data_str) > 200:
+                            print(f"   📊 结果: {data_str[:200]}...")
+                        else:
+                            print(f"   📊 结果: {data_str}")
+                else:
+                    print(f"   ❌ 工具执行失败: {result.get('error', 'Unknown error')}")
+
                 yield {
                     "type": "tool_execution_completed",
-                    "tool_name": tool_call_dict.get("name"),
+                    "tool_name": tool_name,
                     "result": result,
                     "iteration": iteration
                 }
@@ -277,6 +339,7 @@ class TaskEngine:
             })
 
         except Exception as e:
+            print(f"\n❌ 请求执行失败: {e}")
             logger.error(f"请求执行失败: {e}", exc_info=True)
             yield {
                 "type": "error",

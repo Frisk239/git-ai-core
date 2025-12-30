@@ -13,7 +13,7 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     print("[INIT] WindowsProactorEventLoopPolicy set successfully")
 
-from app.api.routes import git, ai, mcp, projects, config, github
+from app.api.routes import git, ai, mcp, projects, config, github, chat
 from app.core.git_manager import GitManager
 from app.core.ai_manager import AIManager
 from app.core.mcp_server import MCPServerManager
@@ -66,6 +66,7 @@ app.include_router(mcp.router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(config.router, prefix="/api", tags=["config"])
 app.include_router(github.router, prefix="/api", tags=["github"])
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 
 # 挂载静态文件目录 - 支持项目文档和图片访问
 app.mount("/static", StaticFiles(directory="."), name="static")

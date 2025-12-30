@@ -170,20 +170,159 @@ class GitProject:
         
         return branches
     
-    def get_diff(self, commit_hash: str = None) -> Optional[str]:
-        """获取代码差异"""
+    def get_diff(self, commit_hash: str = None, file_path: str = None, staged: bool = False) -> Optional[str]:
+        """获取代码差异
+
+        Args:
+            commit_hash: 提交哈希（可选）
+            file_path: 文件路径（可选）
+            staged: 是否查看已暂存的变更
+
+        Returns:
+            差异内容字符串
+        """
         if not self.is_valid():
             return None
-        
+
         try:
-            if commit_hash:
+            if file_path:
+                # 获取特定文件的差异
+                if staged:
+                    return self.repo.git.diff('--staged', file_path)
+                else:
+                    return self.repo.git.diff(file_path)
+            elif commit_hash:
+                # 获取特定提交的差异
                 commit = self.repo.commit(commit_hash)
                 return commit.diff(commit.parents[0]) if commit.parents else None
             else:
                 # 获取工作区与最新提交的差异
-                return self.repo.git.diff()
+                if staged:
+                    return self.repo.git.diff('--staged')
+                else:
+                    return self.repo.git.diff()
+        except Exception as e:
+            logger.warning(f"获取 diff 失败: {e}")
+            return None
+
+    def get_status(self) -> Dict[str, Any]:
+        """获取 Git 工作区状态
+
+        Returns:
+            状态信息字典
+        """
+        if not self.is_valid():
+            return {}
+
+        try:
+            # 获取未跟踪的文件
+            untracked_files = [item.a_path for item in self.repo.untracked_files]
+
+            # 获取已修改的文件
+            modified_files = [item.a_path for item in self.repo.index.diff(None)]
+
+            # 获取已暂存的文件
+            staged_files = [item.a_path for item in self.repo.index.diff('HEAD')]
+
+            return {
+                "branch": self.repo.active_branch.name if self.repo.active_branch else None,
+                "untracked": untracked_files,
+                "modified": modified_files,
+                "staged": staged_files,
+                "is_clean": len(untracked_files) == 0 and len(modified_files) == 0 and len(staged_files) == 0
+            }
+        except Exception as e:
+            logger.error(f"获取 status 失败: {e}")
+            return {}
+
+    def get_current_branch(self) -> Optional[str]:
+        """获取当前分支名称
+
+        Returns:
+            分支名称
+        """
+        if not self.is_valid():
+            return None
+
+        try:
+            return self.repo.active_branch.name
         except Exception:
             return None
+
+    def list_branches(self) -> List[Dict[str, Any]]:
+        """列出所有分支
+
+        Returns:
+            分支列表
+        """
+        return self.get_branches()
+
+    def create_branch(self, branch_name: str) -> bool:
+        """创建新分支
+
+        Args:
+            branch_name: 分支名称
+
+        Returns:
+            是否成功
+        """
+        if not self.is_valid():
+            return False
+
+        try:
+            self.repo.create_head(branch_name)
+            logger.info(f"创建分支: {branch_name}")
+            return True
+        except Exception as e:
+            logger.error(f"创建分支失败: {e}")
+            return False
+
+    def switch_branch(self, branch_name: str) -> bool:
+        """切换分支
+
+        Args:
+            branch_name: 分支名称
+
+        Returns:
+            是否成功
+        """
+        if not self.is_valid():
+            return False
+
+        try:
+            self.repo.heads[branch_name].checkout()
+            logger.info(f"切换到分支: {branch_name}")
+            return True
+        except Exception as e:
+            logger.error(f"切换分支失败: {e}")
+            return False
+
+    def get_file_log(self, file_path: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取特定文件的提交历史
+
+        Args:
+            file_path: 文件路径
+            limit: 返回数量限制
+
+        Returns:
+            提交历史列表
+        """
+        if not self.is_valid():
+            return []
+
+        commits = []
+        try:
+            for commit in self.repo.iter_commits(max_count=limit, paths=file_path):
+                commits.append({
+                    "hash": str(commit.hexsha),
+                    "message": commit.message.strip(),
+                    "author": str(commit.author),
+                    "date": commit.committed_datetime.isoformat(),
+                })
+        except Exception as e:
+            logger.warning(f"获取文件日志失败: {e}")
+
+        return commits
 
 class GitManager:
     """Git管理器"""

@@ -211,6 +211,57 @@ export const api = {
     return response.data
   },
 
+  // 新的智能对话 - 使用工具调用系统（支持流式响应）
+  async smartChatV2(message: string, projectPath: string, onEvent?: (event: any) => void) {
+    const response = await fetch(`${API_BASE_URL}/api/chat/smart-chat-v2`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        repository_path: projectPath
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('No response body')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // 处理 SSE 格式的数据
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // 保留不完整的行
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.substring(6))
+            if (onEvent) {
+              onEvent(data)
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE data:', e)
+          }
+        }
+      }
+    }
+  },
+
   // GitHub operations
   async getGitHubTrending() {
     const response = await apiClient.get('/api/github/trending')

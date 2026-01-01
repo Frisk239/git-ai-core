@@ -1,0 +1,11 @@
+{
+  "ai_provider": "glm_coding",
+  "ai_model": "glm-4.7",
+  "ai_api_key": "ab56f44321834f2eb99ee2c3689620e8.XyPYnm3IsJExlb4C",
+  "ai_base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+  "temperature": 0.7,
+  "max_tokens": 2000,
+  "top_p": 1.0,
+  "frequency_penalty": 0.0,
+  "presence_penalty": 0.0
+}

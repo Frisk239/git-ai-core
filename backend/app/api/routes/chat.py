@@ -4,7 +4,6 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from datetime import datetime
 import json
-import os
 
 from app.core.chat_database import get_chat_db
 from app.models.chat_models import Conversation, Message
@@ -72,7 +71,12 @@ async def get_messages(conversation_id: int, db: Session = Depends(get_chat_db))
 @router.get("/config")
 async def get_ai_config():
     """实时读取AI配置文件"""
-    config_path = os.path.join("app", "api", "AI-Config.json")
+    # 获取项目根目录（app目录的上级目录）
+    from pathlib import Path
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent.parent.parent
+    config_path = project_root / "AI-Config.json"
+
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)

@@ -19,9 +19,13 @@ class AIConfig(BaseModel):
 
 def get_config_path() -> str:
     """获取配置文件路径"""
-    # backend目录下的AI-Config.json
-    current_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    return os.path.join(current_dir, 'backend', 'AI-Config.json')
+    # 从当前文件位置导航到项目根目录，然后到backend目录下的AI-Config.json
+    from pathlib import Path
+    current_file = Path(__file__).resolve()
+    # routes目录 -> api目录 -> app目录 -> backend目录 -> 项目根目录
+    project_root = current_file.parent.parent.parent.parent.parent
+    config_path = project_root / 'backend' / 'AI-Config.json'
+    return str(config_path)
 
 @router.get("/config/ai")
 async def get_ai_config() -> Dict[str, Any]:

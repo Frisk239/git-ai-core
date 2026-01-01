@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { PlusIcon, TrashIcon, CogIcon, PlayIcon, DocumentDuplicateIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline'
+import { Switch } from '@headlessui/react'
 import { api } from '../../services/api'
 
 interface MCPServer {
@@ -63,6 +64,18 @@ export const MCPSettingsNew: React.FC = () => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'MCP服务器移除失败')
+    }
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
+      api.toggleMCPServer(name, enabled),
+    onSuccess: (_, variables) => {
+      toast.success(`MCP服务器已${variables.enabled ? '启用' : '禁用'}！`)
+      queryClient.invalidateQueries({ queryKey: ['mcp-servers'] })
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'MCP服务器状态切换失败')
     }
   })
 
@@ -194,38 +207,18 @@ export const MCPSettingsNew: React.FC = () => {
         </div>
       </div>
 
-      {/* 内置服务器区域 */}
-      <div className="mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">内置服务器</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {serverList.filter(s => s.builtin).map((server) => (
-            <ServerCard
-              key={server.name}
-              server={server}
-              onEdit={() => {
-                setCurrentServer(server)
-                setShowModal(true)
-              }}
-              onTest={() => handleTestServer(server)}
-              onRemove={() => handleRemoveServer(server.name)}
-              isBuiltin={true}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* 自定义服务器区域 */}
+      {/* 服务器列表 */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">自定义服务器</h2>
-        {serverList.filter(s => !s.builtin).length === 0 ? (
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">MCP 服务器</h2>
+        {serverList.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-lg">
             <CogIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">暂无自定义MCP服务器</p>
+            <p className="text-gray-500">暂无MCP服务器</p>
             <p className="text-sm text-gray-400 mt-1">点击上方按钮添加或导入服务器</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {serverList.filter(s => !s.builtin).map((server) => (
+            {serverList.map((server) => (
               <ServerCard
                 key={server.name}
                 server={server}
@@ -235,6 +228,7 @@ export const MCPSettingsNew: React.FC = () => {
                 }}
                 onTest={() => handleTestServer(server)}
                 onRemove={() => handleRemoveServer(server.name)}
+                onToggle={(enabled) => toggleMutation.mutate({ name: server.name, enabled })}
                 isBuiltin={false}
               />
             ))}
@@ -271,32 +265,42 @@ const ServerCard: React.FC<{
   onEdit: () => void
   onTest: () => void
   onRemove: () => void
+  onToggle: (enabled: boolean) => void
   isBuiltin: boolean
-}> = ({ server, onEdit, onTest, onRemove, isBuiltin }) => {
+}> = ({ server, onEdit, onTest, onRemove, onToggle }) => {
   return (
     <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1">
           <h3 className="font-semibold text-gray-900 flex items-center">
             {server.name}
-            {isBuiltin && (
-              <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
-                内置
-              </span>
-            )}
           </h3>
           {server.description && (
             <p className="text-sm text-gray-600 mt-1">{server.description}</p>
           )}
         </div>
-        {!isBuiltin && (
+        <div className="flex items-center space-x-2">
+          {/* 开关组件 */}
+          <Switch
+            checked={server.enabled !== false}
+            onChange={onToggle}
+            className={`${
+              server.enabled !== false ? 'bg-blue-600' : 'bg-gray-200'
+            } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2`}
+          >
+            <span
+              className={`${
+                server.enabled !== false ? 'translate-x-6' : 'translate-x-1'
+              } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+            />
+          </Switch>
           <button
             onClick={onRemove}
-            className="p-1 text-red-600 hover:bg-red-50 rounded-md ml-2"
+            className="p-1 text-red-600 hover:bg-red-50 rounded-md"
           >
             <TrashIcon className="h-4 w-4" />
           </button>
-        )}
+        </div>
       </div>
 
       <div className="space-y-2 text-sm text-gray-600 mb-4">
@@ -316,7 +320,8 @@ const ServerCard: React.FC<{
       <div className="flex space-x-2">
         <button
           onClick={onTest}
-          className="flex-1 px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center justify-center"
+          disabled={server.enabled === false}
+          className="flex-1 px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
         >
           <PlayIcon className="h-3 w-3 mr-1" />
           测试

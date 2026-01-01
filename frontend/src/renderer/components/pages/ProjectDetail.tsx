@@ -6,21 +6,17 @@ import {
   FolderIcon,
   DocumentTextIcon,
   TrashIcon,
-  DocumentChartBarIcon,
   ArrowPathIcon,
   ChatBubbleLeftRightIcon,
-  LightBulbIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CodeBracketIcon,
   UserIcon,
   MagnifyingGlassIcon,
-  ChartBarIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../../services/api";
 import { FileViewer } from "./FileViewer";
 import { SmartChatPanel } from "./SmartChatPanel";
-import { MarkdownViewer } from "./MarkdownViewer";
 
 interface Project {
   info: {
@@ -61,9 +57,6 @@ export const ProjectDetail: React.FC = () => {
   const { path } = useParams<{ path: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [analysisQuery, setAnalysisQuery] = useState("");
-  const [analysisResult, setAnalysisResult] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -73,23 +66,9 @@ export const ProjectDetail: React.FC = () => {
   const [expandedFolders, setExpandedFolders] = useState<
     Record<string, boolean>
   >({});
-  // AI功能标签页状态
-  const [activeAITab, setActiveAITab] = useState<"analysis" | "chat">(
-    "analysis"
-  );
 
-  // 一键触发功能状态
-  const [isGeneratingArchitecture, setIsGeneratingArchitecture] =
-    useState(false);
-  const [architectureResult, setArchitectureResult] = useState("");
-  const [isGeneratingEvolution, setIsGeneratingEvolution] = useState(false);
-  const [evolutionResult, setEvolutionResult] = useState("");
+  // 更新项目状态
   const [isUpdating, setIsUpdating] = useState(false);
-  const [updateResult, setUpdateResult] = useState("");
-  // 智能对话模式状态
-  const [analysisMode, setAnalysisMode] = useState<"simple" | "smart">(
-    "simple"
-  );
   const [previewFile, setPreviewFile] = useState<{
     path: string;
     content: string;
@@ -119,40 +98,6 @@ export const ProjectDetail: React.FC = () => {
       setExpandedFolders(initialExpanded);
     }
   }, [project?.file_tree]);
-
-  const handleAnalyze = async () => {
-    if (!analysisQuery.trim()) {
-      toast.error("请输入查询内容");
-      return;
-    }
-
-    const provider = localStorage.getItem("ai-provider");
-    const model = localStorage.getItem("ai-model");
-    const apiKey = localStorage.getItem("ai-api-key");
-    const baseUrl = localStorage.getItem("ai-base-url");
-
-    if (!provider || !model || !apiKey) {
-      toast.error("请先配置AI设置");
-      return;
-    }
-
-    setIsAnalyzing(true);
-    try {
-      const result = await api.analyzeProject(
-        decodedPath,
-        analysisQuery,
-        provider,
-        model,
-        apiKey,
-        baseUrl || undefined
-      );
-      setAnalysisResult(result.analysis);
-    } catch (error) {
-      toast.error("项目分析失败");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
 
   const handleDeleteProject = async () => {
     setIsDeleting(true);
@@ -221,7 +166,6 @@ export const ProjectDetail: React.FC = () => {
       const result = await api.pullUpdates(decodedPath);
 
       if (result.success) {
-        setUpdateResult(result.message || "仓库更新成功");
         toast.success("仓库更新成功");
 
         // 更新成功后自动刷新页面数据
@@ -229,83 +173,13 @@ export const ProjectDetail: React.FC = () => {
           queryClient.invalidateQueries({ queryKey: ["project", decodedPath] });
         }, 1000);
       } else {
-        setUpdateResult(result.error || "仓库更新失败");
         toast.error(result.error || "仓库更新失败");
       }
     } catch (error) {
       console.error("更新仓库失败:", error);
-      setUpdateResult("更新仓库时发生错误");
       toast.error("更新仓库失败");
     } finally {
       setIsUpdating(false);
-    }
-  };
-
-  // 一键生成架构文档
-  const handleGenerateArchitecture = async () => {
-    const provider = localStorage.getItem("ai-provider");
-    const model = localStorage.getItem("ai-model");
-    const apiKey = localStorage.getItem("ai-api-key");
-    const baseUrl = localStorage.getItem("ai-base-url");
-
-    if (!provider || !model || !apiKey) {
-      toast.error("请先配置AI设置");
-      return;
-    }
-
-    setIsGeneratingArchitecture(true);
-    try {
-      const result = await api.generateArchitectureDocumentation(
-        decodedPath,
-        provider,
-        model,
-        apiKey,
-        baseUrl || undefined
-      );
-      setArchitectureResult(
-        result.analysis || result.message || "架构文档生成成功"
-      );
-      toast.success("架构文档生成成功");
-
-      // 生成成功后自动刷新页面数据
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["project", decodedPath] });
-      }, 1000);
-    } catch (error) {
-      console.error("生成架构文档失败:", error);
-      toast.error("生成架构文档失败");
-    } finally {
-      setIsGeneratingArchitecture(false);
-    }
-  };
-
-  // 生成项目演化时间线
-  const handleGenerateEvolutionTimeline = async () => {
-    const provider = localStorage.getItem("ai-provider");
-    const model = localStorage.getItem("ai-model");
-    const apiKey = localStorage.getItem("ai-api-key");
-    const baseUrl = localStorage.getItem("ai-base-url");
-
-    if (!provider || !model || !apiKey) {
-      toast.error("请先配置AI设置");
-      return;
-    }
-
-    setIsGeneratingEvolution(true);
-    try {
-      const result = await api.generateEvolutionTimeline(decodedPath, "medium");
-      setEvolutionResult(result.markdown_content);
-      toast.success("项目演化时间线生成成功");
-
-      // 生成成功后自动刷新页面数据
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["project", decodedPath] });
-      }, 1000);
-    } catch (error) {
-      console.error("生成项目演化时间线失败:", error);
-      toast.error("生成项目演化时间线失败");
-    } finally {
-      setIsGeneratingEvolution(false);
     }
   };
 
@@ -442,7 +316,6 @@ export const ProjectDetail: React.FC = () => {
             setSelectedFile(null);
             setFileContent(null);
           }}
-          onFileContentUpdate={(newContent) => setFileContent(newContent)}
         />
       </div>
     );
@@ -466,12 +339,6 @@ export const ProjectDetail: React.FC = () => {
           filePath={previewFile.path}
           projectRoot={decodedPath}
           onClose={handleClosePreview}
-          onFileContentUpdate={(newContent) =>
-            setPreviewFile({
-              ...previewFile,
-              content: newContent,
-            })
-          }
         />
       </div>
     );
@@ -562,7 +429,7 @@ export const ProjectDetail: React.FC = () => {
             <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
               <div className="flex items-center mb-2">
                 <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center mr-2">
-                  <DocumentChartBarIcon className="h-4 w-4 text-white" />
+                  <CodeBracketIcon className="h-4 w-4 text-white" />
                 </div>
                 <p className="text-sm font-medium text-purple-800">提交数量</p>
               </div>
@@ -681,67 +548,7 @@ export const ProjectDetail: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            {/* 快速操作 */}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={handleGenerateArchitecture}
-                disabled={isGeneratingArchitecture}
-                className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 transition-all duration-300 shadow-md hover:shadow-xl"
-              >
-                {isGeneratingArchitecture ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    生成中...
-                  </>
-                ) : (
-                  <>
-                    <DocumentChartBarIcon className="h-5 w-5 mr-2" />
-                    生成架构文档
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleGenerateEvolutionTimeline}
-                disabled={isGeneratingEvolution}
-                className="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl hover:from-orange-600 hover:to-red-700 disabled:opacity-50 transition-all duration-300 shadow-md hover:shadow-xl"
-              >
-                {isGeneratingEvolution ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    生成中...
-                  </>
-                ) : (
-                  <>
-                    <ChartBarIcon className="h-5 w-5 mr-2" />
-                    项目演化时间线
-                  </>
-                )}
-              </button>
-            </div>
           </div>
-
-          {architectureResult && (
-            <div className="mt-6 p-4 bg-gradient-to-br from-emerald-50/50 to-teal-50/50 rounded-xl border border-emerald-200/50 backdrop-blur-sm">
-              <h3 className="text-sm font-bold text-emerald-800 mb-2 flex items-center">
-                <DocumentChartBarIcon className="h-4 w-4 mr-1 text-emerald-600" />
-                架构文档结果
-              </h3>
-              <div className="text-sm text-emerald-700/90 whitespace-pre-wrap leading-relaxed bg-white/30 rounded-lg p-3">
-                {architectureResult}
-              </div>
-            </div>
-          )}
-
-          {evolutionResult && (
-            <div className="mt-6">
-              <MarkdownViewer
-                content={evolutionResult}
-                title="项目演化时间线分析报告"
-                className="bg-gradient-to-br from-orange-50/50 to-red-50/50 border-orange-200/50"
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -895,131 +702,35 @@ export const ProjectDetail: React.FC = () => {
           </div>
         </div>
 
-        {/* 右侧：AI功能区域 */}
+        {/* 右侧：AI对话区域 */}
         <div className="xl:col-span-2">
           <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow hover:shadow-lg transition-all duration-300 border border-gray-100/50 hover:border-gray-200 h-full flex flex-col overflow-hidden">
-            {/* 标签页导航 - 现代化设计 */}
-            <div className="flex bg-gradient-to-r from-gray-50/50 to-gray-100/50 border-b border-gray-200/50">
-              <button
-                onClick={() => setActiveAITab("analysis")}
-                className={`flex-1 py-4 px-6 text-center font-medium transition-all duration-300 relative ${
-                  activeAITab === "analysis"
-                    ? "text-blue-600"
-                    : "text-gray-600 hover:text-gray-800"
-                }`}
-              >
-                <div className="flex items-center justify-center">
-                  <div
-                    className={`p-2 rounded-lg mr-3 ${
-                      activeAITab === "analysis"
-                        ? "bg-gradient-to-r from-blue-500 to-indigo-500 text-white"
-                        : "bg-gray-200 text-gray-600"
-                    }`}
-                  >
-                    <LightBulbIcon className="h-4 w-4" />
-                  </div>
-                  <span className="font-semibold">AI分析</span>
+            {/* 标题 */}
+            <div className="bg-gradient-to-r from-indigo-50/50 to-purple-50/50 px-6 py-4 border-b border-indigo-200/50">
+              <div className="flex items-center">
+                <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg mr-3">
+                  <ChatBubbleLeftRightIcon className="h-5 w-5 text-white" />
                 </div>
-                {activeAITab === "analysis" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveAITab("chat")}
-                className={`flex-1 py-4 px-6 text-center font-medium transition-all duration-300 relative ${
-                  activeAITab === "chat"
-                    ? "text-indigo-600"
-                    : "text-gray-600 hover:text-gray-800"
-                }`}
-              >
-                <div className="flex items-center justify-center">
-                  <div
-                    className={`p-2 rounded-lg mr-3 ${
-                      activeAITab === "chat"
-                        ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white"
-                        : "bg-gray-200 text-gray-600"
-                    }`}
-                  >
-                    <ChatBubbleLeftRightIcon className="h-4 w-4" />
-                  </div>
-                  <span className="font-semibold">AI对话</span>
+                <div>
+                  <h2 className="text-lg font-bold bg-gradient-to-r from-indigo-800 to-purple-800 bg-clip-text text-transparent">
+                    AI 智能对话
+                  </h2>
+                  <p className="text-xs text-gray-600">使用MCP工具增强的AI助手</p>
                 </div>
-                {activeAITab === "chat" && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
-                )}
-              </button>
+              </div>
             </div>
 
-            {/* 标签页内容 */}
+            {/* 对话面板 */}
             <div className="flex-1 p-6 overflow-hidden">
-              {activeAITab === "analysis" ? (
-                <div className="h-full flex flex-col space-y-6">
-                  {/* 输入区域 - 美化设计 */}
-                  <div className="bg-gradient-to-br from-blue-50/30 to-indigo-50/30 rounded-xl p-5 border border-blue-200/50 backdrop-blur-sm">
-                    <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center">
-                      <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full mr-2 "></div>
-                      询问关于此项目的问题
-                    </label>
-                    <textarea
-                      value={analysisQuery}
-                      onChange={(e) => setAnalysisQuery(e.target.value)}
-                      placeholder="例如：这个项目的主要目的是什么？代码是如何组织的？"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 backdrop-blur-sm resize-none hover:border-gray-400"
-                      rows={4}
-                    />
-                  </div>
-
-                  {/* 分析按钮 - 现代化设计 */}
-                  <div className="flex justify-center">
-                    <button
-                      onClick={handleAnalyze}
-                      disabled={isAnalyzing}
-                      className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center min-w-[200px]"
-                    >
-                      {isAnalyzing ? (
-                        <>
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></div>
-                          <span className="font-semibold">分析中...</span>
-                        </>
-                      ) : (
-                        <>
-                          <LightBulbIcon className="h-5 w-5 mr-2" />
-                          <span className="font-semibold">开始分析</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* 分析结果 - 优化显示 */}
-                  {analysisResult && (
-                    <div className="flex-1 bg-gradient-to-br from-blue-50/50 to-indigo-50/50 rounded-xl p-6 border border-blue-200/50 backdrop-blur-sm overflow-hidden">
-                      <div className="flex items-center mb-4">
-                        <div className="p-2 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg mr-3">
-                          <LightBulbIcon className="h-4 w-4 text-white" />
-                        </div>
-                        <h3 className="text-lg font-bold text-blue-900">
-                          分析结果
-                        </h3>
-                      </div>
-                      <div className="bg-white/40 rounded-xl p-4 h-[calc(100vh-500px)] min-h-[300px] overflow-y-auto border border-blue-100/50">
-                        <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                          {analysisResult}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+              <div className="h-full flex flex-col">
+                <div className="flex-1 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 rounded-xl p-6 backdrop-blur-sm border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 overflow-hidden h-[calc(100vh-280px)]">
+                  <SmartChatPanel
+                    projectPath={decodedPath}
+                    fileTree={project?.file_tree}
+                    onFilePreview={handleFilePreview}
+                  />
                 </div>
-              ) : (
-                <div className="h-full flex flex-col">
-                  <div className="flex-1 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 rounded-xl p-6 backdrop-blur-sm border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 overflow-hidden h-[calc(100vh-280px)]">
-                    <SmartChatPanel
-                      projectPath={decodedPath}
-                      fileTree={project?.file_tree}
-                      onFilePreview={handleFilePreview}
-                    />
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           </div>
         </div>

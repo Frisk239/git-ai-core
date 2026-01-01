@@ -2,6 +2,8 @@ import asyncio
 from typing import Dict, Any, List, Optional
 import json
 import re
+import os
+from pathlib import Path
 from datetime import datetime
 from app.core.ai_manager import AIManager
 
@@ -44,11 +46,11 @@ class IntentRecognizer:
         '主文件': ['main.', 'index.', 'app.', 'src/main.'],
         '入口': ['main.', 'index.', 'app.', 'src/main.']
     }
-    
+
     def __init__(self):
-        from app.core.project_mcp_server import project_mcp_server
-        self.project_mcp_server = project_mcp_server
-    
+        # 不再依赖 project_mcp_server，直接使用文件系统操作
+        pass
+
     def extract_keywords(self, query: str) -> List[str]:
         """提取查询中的关键词（基于Cline理念的智能分词）"""
         # 移除标点符号但保留重要符号如. / _ -
@@ -104,18 +106,45 @@ class IntentRecognizer:
                     file_types.add(file_type)
         
         return list(file_types) if file_types else ['python', 'javascript', 'config', 'documentation']  # 默认包含文档类型
-    
+
     async def get_project_structure(self, project_path: str) -> Dict[str, Any]:
         """获取项目文件结构"""
         try:
-            result = await self.project_mcp_server.list_project_files(project_path, max_depth=10)
-            
-            if result.get("success") and result.get("files"):
-                # 将文件列表转换为树形结构
-                return self._build_file_tree(result["files"])
+            files = []
+            project_path_obj = Path(project_path)
+
+            if not project_path_obj.exists():
+                return {"name": "project", "type": "directory", "children": []}
+
+            # 递归收集文件
+            def collect_files_recursively(directory: Path, max_depth: int = 10, current_depth: int = 0):
+                if current_depth >= max_depth:
+                    return
+
+                try:
+                    for item in directory.iterdir():
+                        # 跳过隐藏目录和常见的忽略目录
+                        if item.name.startswith('.') or item.name in ['node_modules', '__pycache__', 'venv', 'env', '.git']:
+                            continue
+
+                        if item.is_file():
+                            files.append({
+                                "path": str(item.relative_to(project_path_obj)),
+                                "name": item.name,
+                                "size": item.stat().st_size
+                            })
+                        elif item.is_dir():
+                            collect_files_recursively(item, max_depth, current_depth + 1)
+                except PermissionError:
+                    pass
+
+            collect_files_recursively(project_path_obj)
+
+            if files:
+                return self._build_file_tree(files)
             else:
                 return {"name": "project", "type": "directory", "children": []}
-                
+
         except Exception as e:
             print(f"获取项目结构失败: {str(e)}")
             return {"name": "project", "type": "directory", "children": []}
@@ -357,11 +386,11 @@ class IntentRecognizer:
 
 class AutoFileReader:
     """自动文件读取器 - 无需用户批准"""
-    
+
     def __init__(self):
-        from app.core.project_mcp_server import project_mcp_server
-        self.project_mcp_server = project_mcp_server
-    
+        # 不再依赖 project_mcp_server，直接使用文件系统操作
+        pass
+
     async def read_files(self, project_path: str, file_requests: List[Dict[str, Any]]) -> Dict[str, str]:
         """自动读取多个文件"""
         file_contents = {}
@@ -398,10 +427,20 @@ class AutoFileReader:
     async def read_file(self, project_path: str, file_path: str) -> Optional[str]:
         """读取单个文件"""
         try:
-            result = await self.project_mcp_server.read_project_file(project_path, file_path)
-            
-            if result.get("success") and result.get("content"):
-                return result["content"]
+            full_path = Path(project_path) / file_path
+
+            if not full_path.exists() or not full_path.is_file():
+                return None
+
+            # 尝试不同编码读取文件
+            encodings = ['utf-8', 'gbk', 'latin-1']
+            for encoding in encodings:
+                try:
+                    content = full_path.read_text(encoding=encoding)
+                    return content
+                except UnicodeDecodeError:
+                    continue
+
             return None
         except Exception as e:
             print(f"读取文件异常 {file_path}: {str(e)}")
@@ -417,7 +456,7 @@ class AutoFileReader:
             "./" + original_path,
             original_path.lstrip('./'),
         ]
-        
+
         # 对于常见的配置文件，尝试标准位置
         common_files = {
             'requirements.txt': ['requirements.txt', 'reqs.txt'],
@@ -426,22 +465,22 @@ class AutoFileReader:
             'pyproject.toml': ['pyproject.toml'],
             'setup.py': ['setup.py']
         }
-        
+
         if original_path in common_files:
             corrections.extend(common_files[original_path])
-        
+
         # 测试每个修正后的路径
         for corrected_path in corrections:
             if corrected_path == original_path:
                 continue
-                
+
             try:
-                result = await self.project_mcp_server.read_project_file(project_path, corrected_path)
-                if result.get("success") and result.get("content"):
+                full_path = Path(project_path) / corrected_path
+                if full_path.exists() and full_path.is_file():
                     return corrected_path
             except:
                 continue
-        
+
         return None
 
 

@@ -20,8 +20,8 @@ class AIConfig(BaseModel):
 def get_config_path() -> str:
     """获取配置文件路径"""
     # backend目录下的AI-Config.json
-    current_dir = os.path.dirname(os.path.dirname(__file__))
-    return os.path.join(current_dir, 'AI-Config.json')
+    current_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    return os.path.join(current_dir, 'backend', 'AI-Config.json')
 
 @router.get("/config/ai")
 async def get_ai_config() -> Dict[str, Any]:

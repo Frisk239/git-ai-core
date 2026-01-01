@@ -3,7 +3,6 @@ import {
   DocumentTextIcon,
   ArrowDownTrayIcon,
   ClipboardDocumentIcon,
-  ChatBubbleLeftRightIcon,
   EyeIcon,
   ArrowLeftIcon,
 } from "@heroicons/react/24/outline";
@@ -16,8 +15,6 @@ import "github-markdown-css";
 import hljs from "highlight.js";
 // 将不存在的github-light.css改为github.css
 import "highlight.js/styles/github.css";
-import { toast } from "react-hot-toast";
-import { api } from "../../services/api";
 import { SmartChatPanel } from "./SmartChatPanel";
 
 type IStandaloneCodeEditor = editor.IStandaloneCodeEditor;
@@ -28,7 +25,6 @@ interface FileViewerProps {
   filePath: string;
   projectRoot: string;
   onClose: () => void;
-  onFileContentUpdate?: (newContent: string) => void;
 }
 
 export const FileViewer: React.FC<FileViewerProps> = ({
@@ -37,13 +33,9 @@ export const FileViewer: React.FC<FileViewerProps> = ({
   filePath,
   projectRoot,
   onClose,
-  onFileContentUpdate,
 }) => {
   const editorRef = useRef<IStandaloneCodeEditor | null>(null);
   const [markdownHtml, setMarkdownHtml] = useState("");
-  const [isReloading, setIsReloading] = useState(false);
-  const [isGeneratingComments, setIsGeneratingComments] = useState(false);
-  const [commentStyle, setCommentStyle] = useState("detailed");
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
   const isMarkdown = fileName.toLowerCase().endsWith(".md");
 
@@ -98,101 +90,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({
 
   const formatLineCount = (content: string) => {
     return content.split("\n").length;
-  };
-
-  // 重新加载文件内容
-  const reloadFileContent = async () => {
-    setIsReloading(true);
-    try {
-      const result = await api.getFileContent(projectRoot, filePath);
-      if (onFileContentUpdate) {
-        onFileContentUpdate(result.content);
-      }
-      toast.success("文件内容已更新");
-    } catch (error) {
-      console.error("重新加载文件失败:", error);
-      toast.error("重新加载文件失败");
-    } finally {
-      setIsReloading(false);
-    }
-  };
-
-  // 生成注释
-  const handleGenerateComments = async () => {
-    if (isMarkdown) {
-      toast.error("Markdown文件不支持注释生成");
-      return;
-    }
-
-    setIsGeneratingComments(true);
-    try {
-      const result = await api.executeMCPTool(
-        "comment-server",
-        "generate_comments",
-        {
-          project_root: projectRoot,
-          file_path: filePath,
-          comment_style: commentStyle,
-        }
-      );
-
-      if (result.success) {
-        const commentedCode = result.result.commented_code;
-
-        // 写入注释到文件
-        const writeResult = await api.executeMCPTool(
-          "comment-server",
-          "write_comments",
-          {
-            project_root: projectRoot,
-            file_path: filePath,
-            content: commentedCode,
-          }
-        );
-
-        if (writeResult.success) {
-          toast.success("注释生成并写入成功");
-          // 重新加载文件内容而不是刷新页面
-          await reloadFileContent();
-        } else {
-          toast.error("写入文件失败");
-        }
-      } else {
-        toast.error(`生成注释失败: ${result.error}`);
-      }
-    } catch (error) {
-      toast.error("生成注释时发生错误");
-      console.error("Generate comments error:", error);
-    } finally {
-      setIsGeneratingComments(false);
-    }
-  };
-
-  // 检查是否支持注释生成
-  const canGenerateComments = () => {
-    const ext = fileName.split(".").pop()?.toLowerCase() || "";
-    const supportedExtensions = [
-      "py",
-      "js",
-      "jsx",
-      "ts",
-      "tsx",
-      "java",
-      "cpp",
-      "c",
-      "h",
-      "hpp",
-      "go",
-      "rs",
-      "php",
-      "rb",
-      "sh",
-      "sql",
-      "css",
-      "scss",
-      "sass",
-    ];
-    return supportedExtensions.includes(ext) && !isMarkdown;
   };
 
   // 根据文件扩展名确定语言
@@ -279,40 +176,15 @@ export const FileViewer: React.FC<FileViewerProps> = ({
               </span>
             </div>
 
-            {/* 注释生成相关按钮 */}
-            {canGenerateComments() && (
-              <div className="flex items-center space-x-2 bg-green-50 rounded-lg px-2 py-1">
-                <select
-                  value={commentStyle}
-                  onChange={(e) => setCommentStyle(e.target.value)}
-                  className="text-xs border border-green-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
-                >
-                  <option value="detailed">详细注释</option>
-                  <option value="brief">简洁注释</option>
-                  <option value="documentation">文档注释</option>
-                </select>
-
-                <button
-                  onClick={handleGenerateComments}
-                  disabled={isGeneratingComments || isReloading}
-                  className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-100 rounded disabled:text-gray-400 disabled:hover:bg-transparent transition-colors duration-200"
-                  title="生成注释"
-                >
-                  <ChatBubbleLeftRightIcon className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
             {/* Markdown预览按钮 */}
             {isMarkdown && (
               <button
                 onClick={() => setShowMarkdownPreview(!showMarkdownPreview)}
-                disabled={isReloading}
                 className={`p-1.5 rounded-lg transition-colors duration-200 ${
                   showMarkdownPreview
                     ? "bg-blue-100 text-blue-700"
                     : "text-blue-600 hover:bg-blue-50"
-                } disabled:text-gray-400 disabled:hover:bg-transparent`}
+                }`}
                 title={showMarkdownPreview ? "隐藏预览" : "显示预览"}
               >
                 <EyeIcon className="h-4 w-4" />
@@ -322,16 +194,14 @@ export const FileViewer: React.FC<FileViewerProps> = ({
             <div className="flex items-center space-x-1">
               <button
                 onClick={handleCopy}
-                disabled={isReloading}
-                className="p-1.5 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:text-gray-400 disabled:hover:bg-transparent transition-colors duration-200"
+                className="p-1.5 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-200"
                 title="复制代码"
               >
                 <ClipboardDocumentIcon className="h-4 w-4" />
               </button>
               <button
                 onClick={handleDownload}
-                disabled={isReloading}
-                className="p-1.5 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:text-gray-400 disabled:hover:bg-transparent transition-colors duration-200"
+                className="p-1.5 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-200"
                 title="下载文件"
               >
                 <ArrowDownTrayIcon className="h-4 w-4" />
@@ -345,17 +215,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({
       <div className="flex-1 flex overflow-hidden bg-gray-50">
         {/* 左侧：文件内容展示区 */}
         <div className="flex-1 overflow-hidden relative bg-white m-2 rounded-lg shadow-sm flex flex-col">
-          {isReloading && (
-            <div className="absolute inset-0 bg-white bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-10">
-              <div className="flex flex-col items-center bg-white p-6 rounded-xl shadow-lg border border-gray-100">
-                <div className="animate-spin rounded-full h-10 w-10 border-3 border-blue-600 border-t-transparent mb-3"></div>
-                <span className="text-sm text-gray-700 font-medium">
-                  正在重新加载文件...
-                </span>
-              </div>
-            </div>
-          )}
-
           {isMarkdown ? (
             <div className="flex-1 w-full rounded-lg overflow-hidden">
               <Editor

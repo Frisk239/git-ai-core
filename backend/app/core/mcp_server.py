@@ -131,32 +131,8 @@ class MCPServerManager:
 
     def get_builtin_servers(self) -> List[Dict[str, Any]]:
         """获取内置MCP服务器配置"""
-        return [
-            {
-                "name": "comment-server",
-                "command": "python",
-                "args": ["-m", "app.core.comment_mcp_server"],
-                "env": {},
-                "description": "内置注释生成MCP服务器，提供代码注释生成功能",
-                "enabled": True,
-                "transportType": "stdio",
-                "url": "",
-                "headers": {},
-                "builtin": True
-            },
-            {
-                "name": "project-file-server",
-                "command": "python",
-                "args": ["-m", "app.core.project_mcp_server"],
-                "env": {},
-                "description": "内置项目文件读取MCP服务器，提供文件读取和目录列表功能",
-                "enabled": True,
-                "transportType": "stdio",
-                "url": "",
-                "headers": {},
-                "builtin": True
-            }
-        ]
+        # 不再提供内置服务器
+        return []
 
     async def start_server(self, name: str) -> bool:
         """启动MCP服务器"""

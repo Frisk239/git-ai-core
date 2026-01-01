@@ -188,6 +188,49 @@ async def remove_server(server_name: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class MCPServerToggleRequest(BaseModel):
+    """MCP服务器切换请求"""
+    enabled: bool = Field(..., description="是否启用")
+
+
+@router.patch("/servers/{server_name}/toggle")
+async def toggle_server(server_name: str, request: MCPServerToggleRequest) -> Dict[str, Any]:
+    """切换MCP服务器启用/禁用状态"""
+    try:
+        mcp_manager = get_mcp_manager()
+
+        # 获取当前服务器配置
+        server = mcp_manager.get_server(server_name)
+        if not server:
+            raise HTTPException(status_code=404, detail=f"服务器 {server_name} 不存在")
+
+        # 更新启用状态
+        server["enabled"] = request.enabled
+
+        # 保存配置
+        if mcp_manager.update_server(server_name, server):
+            # 如果禁用服务器且当前正在运行，则停止它
+            if not request.enabled:
+                status = await mcp_manager.get_server_status(server_name)
+                if status.get("connected"):
+                    await mcp_manager.stop_server(server_name)
+                    logger.info(f"服务器 {server_name} 已禁用并停止")
+
+            return {
+                "success": True,
+                "message": f"服务器 {server_name} 已{'启用' if request.enabled else '禁用'}",
+                "enabled": request.enabled
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update server configuration")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to toggle server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/servers/test")
 async def test_server(request: MCPServerTestRequest) -> Dict[str, Any]:
     """测试MCP服务器连接"""
@@ -410,99 +453,3 @@ async def get_prompt(request: MCPPromptGetRequest) -> Dict[str, Any]:
         }
 
 
-# ==================== 内置服务器兼容端点 ====================
-# 这些端点用于向后兼容旧的内置服务器实现
-
-@router.post("/builtin/comment-server/generate")
-async def builtin_generate_comments(request: dict) -> Dict[str, Any]:
-    """内置注释生成服务器 - 生成注释"""
-    try:
-        from app.core.comment_mcp_server import comment_mcp_server
-
-        project_root = request.get("project_root")
-        file_path = request.get("file_path")
-        comment_style = request.get("comment_style", "detailed")
-
-        if not project_root or not file_path:
-            raise HTTPException(status_code=400, detail="Missing project_root or file_path")
-
-        import os
-        full_path = os.path.join(project_root, file_path)
-        result = await comment_mcp_server.generate_comments(full_path, comment_style)
-
-        return {"success": result["success"], "result": result}
-
-    except Exception as e:
-        logger.error(f"Failed to generate comments: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@router.post("/builtin/comment-server/preview")
-async def builtin_preview_comments(request: dict) -> Dict[str, Any]:
-    """内置注释生成服务器 - 预览注释"""
-    try:
-        from app.core.comment_mcp_server import comment_mcp_server
-
-        project_root = request.get("project_root")
-        file_path = request.get("file_path")
-        comment_style = request.get("comment_style", "detailed")
-
-        if not project_root or not file_path:
-            raise HTTPException(status_code=400, detail="Missing project_root or file_path")
-
-        import os
-        full_path = os.path.join(project_root, file_path)
-        result = await comment_mcp_server.preview_comments(full_path, comment_style)
-
-        return {"success": result["success"], "result": result}
-
-    except Exception as e:
-        logger.error(f"Failed to preview comments: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@router.post("/builtin/project-file-server/list")
-async def builtin_list_files(request: dict) -> Dict[str, Any]:
-    """内置项目文件服务器 - 列出文件"""
-    try:
-        from app.core.project_mcp_server import project_mcp_server
-
-        project_path = request.get("project_path")
-        directory = request.get("directory", "")
-        max_depth = request.get("max_depth", 2)
-
-        if not project_path:
-            raise HTTPException(status_code=400, detail="Missing project_path")
-
-        result = await project_mcp_server.list_project_files(
-            project_path,
-            directory,
-            max_depth
-        )
-
-        return {"success": result["success"], "result": result}
-
-    except Exception as e:
-        logger.error(f"Failed to list files: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@router.post("/builtin/project-file-server/read")
-async def builtin_read_file(request: dict) -> Dict[str, Any]:
-    """内置项目文件服务器 - 读取文件"""
-    try:
-        from app.core.project_mcp_server import project_mcp_server
-
-        project_path = request.get("project_path")
-        file_path = request.get("file_path")
-
-        if not project_path or not file_path:
-            raise HTTPException(status_code=400, detail="Missing project_path or file_path")
-
-        result = await project_mcp_server.read_project_file(project_path, file_path)
-
-        return {"success": result["success"], "result": result}
-
-    except Exception as e:
-        logger.error(f"Failed to read file: {e}")
-        return {"success": False, "error": str(e)}

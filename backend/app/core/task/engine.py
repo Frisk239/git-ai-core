@@ -503,16 +503,52 @@ class TaskEngine:
         """
         构建消息列表（带上下文压缩和字符数限制）
 
-        参考 Cline：先优化重复文件读取，再检查字符数
+        参考 Cline：工具调用历史会被转换为文本格式包含在消息中
         """
         messages = []
 
-        # 添加历史消息
-        for msg in self.conversation_history:
-            messages.append({
-                "role": msg["role"],
-                "content": msg["content"]
-            })
+        # 添加历史消息（包含工具调用信息）
+        if self.history_manager and self.history_manager.messages:
+            for msg in self.history_manager.messages:
+                # 构建消息内容
+                content_parts = [msg.content]
+
+                # 🔥 关键：如果有工具调用，转换为可读的文本格式
+                # 参考 Cline：工具调用会以 "tool_name: params Result: result" 的格式显示
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        # 生成工具描述（如 "read file: xxx"）
+                        tool_desc = self._get_tool_description(tc)
+
+                        # 添加工具调用信息到内容中
+                        content_parts.append(f"\n\n[工具调用] {tool_desc}")
+
+                        # 如果有结果，添加结果
+                        if tc.result:
+                            if tc.result.get("success"):
+                                result_content = tc.result.get("data", "")
+                                # 限制结果长度
+                                if isinstance(result_content, str) and len(result_content) > 500:
+                                    result_content = result_content[:500] + "\n...(内容过长，已截断)"
+                                content_parts.append(f"\n结果: {result_content}")
+                            else:
+                                error_msg = tc.result.get("error", "Unknown error")
+                                content_parts.append(f"\n错误: {error_msg}")
+
+                # 合并所有内容部分
+                full_content = "\n".join(content_parts)
+
+                messages.append({
+                    "role": msg.role,
+                    "content": full_content
+                })
+        else:
+            # 兼容旧代码：使用 conversation_history
+            for msg in self.conversation_history:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
 
         # 添加当前用户内容
         for content in user_content:
@@ -550,6 +586,68 @@ class TaskEngine:
             print(f"   - 最大允许: {info['max_allowed']} tokens")
 
         return messages
+
+    def _get_tool_description(self, tool_call: ToolCall) -> str:
+        """
+        生成工具调用的友好描述
+
+        参考 Cline 的格式：
+        - read file: xxx
+        - write to file: xxx
+        - search_files: xxx
+
+        Args:
+            tool_call: 工具调用对象
+
+        Returns:
+            工具描述字符串
+        """
+        tool_name = tool_call.name
+        params = tool_call.parameters
+
+        # 根据工具名称生成描述
+        if tool_name == "read_file":
+            file_path = params.get("file_path", "")
+            return f"读取文件: {file_path}"
+
+        elif tool_name == "write_to_file":
+            file_path = params.get("file_path", "")
+            return f"写入文件: {file_path}"
+
+        elif tool_name == "modify_file":
+            file_path = params.get("file_path", "")
+            return f"修改文件: {file_path}"
+
+        elif tool_name == "list_directory":
+            path = params.get("path", "")
+            recursive = params.get("recursive", False)
+            return f"列出目录: {path} (递归: {recursive})"
+
+        elif tool_name == "search_files":
+            path = params.get("path", "")
+            pattern = params.get("pattern", "")
+            return f"搜索文件: {path} (模式: {pattern})"
+
+        elif tool_name == "list_code_definitions":
+            file_path = params.get("file_path", "")
+            return f"列出代码定义: {file_path}"
+
+        elif tool_name == "git_status":
+            return "查看 Git 状态"
+
+        elif tool_name == "git_diff":
+            file_path = params.get("file_path", "")
+            return f"查看 Git 差异: {file_path}"
+
+        elif tool_name == "git_log":
+            return "查看 Git 提交历史"
+
+        elif tool_name == "attempt_completion":
+            return "完成任务"
+
+        else:
+            # 通用格式
+            return f"{tool_name}: {params}"
 
     async def _call_ai(
         self,

@@ -67,6 +67,7 @@ class ConversationMessage:
         if self.tool_calls:
             data["tool_calls"] = [
                 {
+                    "id": tc.id,  # 🔥 保存工具调用 ID
                     "name": tc.name,
                     "parameters": tc.parameters,
                     "result": tc.result,

@@ -208,7 +208,7 @@ async def load_task(
     """
     获取任务的详细信息（用于恢复会话）
 
-    返回任务的对话历史和元数据
+    返回任务的对话历史和元数据，包括完整的工具调用记录
     """
     try:
         # 加载任务历史
@@ -223,8 +223,8 @@ async def load_task(
         conv_manager = get_conversation_history_manager(task_id, repository_path)
         await conv_manager.load_history()
 
-        # 转换为 API 消息格式
-        api_messages = conv_manager.to_api_messages()
+        # 🔥 关键修复：直接使用消息的 to_dict() 方法，保留工具调用信息
+        messages_data = [msg.to_dict() for msg in conv_manager.messages]
 
         return {
             "task_id": task_id,
@@ -233,8 +233,8 @@ async def load_task(
             "last_updated": history_item.last_updated,
             "api_provider": history_item.api_provider,
             "api_model": history_item.api_model,
-            "messages": api_messages,
-            "message_count": len(api_messages),
+            "messages": messages_data,  # ✅ 完整的消息数据，包含 tool_calls
+            "message_count": len(messages_data),
         }
 
     except HTTPException:

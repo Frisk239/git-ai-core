@@ -14,8 +14,7 @@ import time
 import uuid
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,36 @@ class ToolCall:
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = time.time()
+
+    @staticmethod
+    def _serialize_value(value: Any) -> Any:
+        """
+        安全地序列化值为 JSON 兼容格式
+
+        参考 Cline：所有工具结果都转换为可读的文本或基本类型
+        """
+        if value is None:
+            return None
+        elif isinstance(value, (str, int, float, bool)):
+            return value
+        elif isinstance(value, list):
+            return [ToolCall._serialize_value(v) for v in value]
+        elif isinstance(value, dict):
+            return {k: ToolCall._serialize_value(v) for k, v in value.items()}
+        else:
+            # 对于复杂对象，尝试转换为字符串
+            try:
+                # 如果有 to_dict 方法，使用它
+                if hasattr(value, 'to_dict'):
+                    return ToolCall._serialize_value(value.to_dict())
+                # 如果有 __dict__，转换为字典
+                elif hasattr(value, '__dict__'):
+                    return ToolCall._serialize_value(value.__dict__)
+                # 否则转换为字符串
+                else:
+                    return str(value)
+            except Exception:
+                return f"<unserializable object: {type(value).__name__}>"
 
 
 @dataclass
@@ -70,7 +99,7 @@ class ConversationMessage:
                     "id": tc.id,  # 🔥 保存工具调用 ID
                     "name": tc.name,
                     "parameters": tc.parameters,
-                    "result": tc.result,
+                    "result": ToolCall._serialize_value(tc.result),  # 🔥 安全地序列化工具结果
                     "timestamp": tc.timestamp,
                 }
                 for tc in self.tool_calls
@@ -323,6 +352,12 @@ class ConversationHistoryManager:
             logger.info(f"对话历史已加载: {self.api_history_file.name} ({len(self.messages)} 条消息)")
             return True
 
+        except json.JSONDecodeError as e:
+            logger.error(f"对话历史文件损坏（JSON格式错误）: {e}")
+            logger.error(f"损坏的文件: {self.api_history_file}")
+            logger.info(f"建议删除该文件以重新开始: {self.api_history_file}")
+            # 返回 False，让系统从空历史开始
+            return False
         except Exception as e:
             logger.error(f"加载对话历史失败: {e}", exc_info=True)
             return False

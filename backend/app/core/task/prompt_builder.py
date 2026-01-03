@@ -233,11 +233,13 @@ class PromptBuilder:
                         # 获取工具列表
                         tools = await mcp_manager.list_tools(server_name)
                         if tools:
-                            server_section += "**可用工具**:\n\n"
+                            server_section += "**可用工具** (使用 use_mcp_tool 时需要的准确 tool_name):\n\n"
                             for tool in tools:
                                 tool_name = tool["name"]
                                 tool_desc = tool.get("description", tool_name)
-                                server_section += f"- `{tool_name}`: {tool_desc}\n"
+                                # 🔥 让工具名称更突出
+                                server_section += f"- **工具名称**: `{tool_name}`\n"
+                                server_section += f"  描述: {tool_desc}\n"
 
                                 # 添加参数 schema
                                 input_schema = tool.get("input_schema", {})
@@ -275,20 +277,31 @@ class PromptBuilder:
 
 Model Context Protocol (MCP) 服务器可以扩展你的能力，提供额外的工具和资源。
 
+### ⚠️ 重要：使用 MCP 工具的正确流程
+
+在调用 MCP 工具之前，你必须：
+
+1. **首先**调用 `list_mcp_servers` 工具查看所有可用的 MCP 服务器及其工具
+2. **从返回结果中**找到你需要的工具的准确名称（`tool_name`）
+3. **然后**调用 `use_mcp_tool`，使用完全准确的 `server_name` 和 `tool_name`
+
+**绝对不要**猜测或创造工具名称！所有可用的工具名称都会在 `list_mcp_servers` 的返回结果中明确列出。
+
 ### MCP 工具使用方法
 
-当需要使用 MCP 服务器的工具时，使用以下工具：
+1. **list_mcp_servers** - 列出所有可用的 MCP 服务器及其工具/资源
+   - 这是使用任何 MCP 工具前的**必需步骤**
+   - 返回结果包含每个服务器的名称、状态、可用工具列表
+   - 工具列表包含每个工具的准确名称和描述
 
-1. **use_mcp_tool** - 调用 MCP 服务器的工具
-   - `server_name`: MCP 服务器名称
-   - `tool_name`: 要调用的工具名称
-   - `arguments`: 工具参数（JSON 字符串）
+2. **use_mcp_tool** - 调用 MCP 服务器的工具
+   - `server_name`: MCP 服务器名称（从 list_mcp_servers 获取）
+   - `tool_name`: 要调用的工具名称（⚠️ 必须从 list_mcp_servers 返回结果中获取准确名称）
+   - `arguments`: 工具参数（JSON 字符串，根据工具的 input_schema）
 
-2. **access_mcp_resource** - 访问 MCP 服务器的资源
+3. **access_mcp_resource** - 访问 MCP 服务器的资源
    - `server_name`: MCP 服务器名称
    - `uri`: 资源 URI
-
-3. **list_mcp_servers** - 列出所有可用的 MCP 服务器及其工具/资源
 
 ### 已连接的 MCP 服务器
 

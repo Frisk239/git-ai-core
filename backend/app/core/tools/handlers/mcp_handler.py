@@ -48,20 +48,33 @@ class UseMcpToolHandler(BaseToolHandler):
         """获取工具规范"""
         return ToolSpec(
             name=self.name,
-            description="调用 MCP (Model Context Protocol) 服务器提供的工具。"
-                      "MCP 服务器可以扩展 AI 的能力，提供额外的功能。",
+            description=(
+                "调用 MCP (Model Context Protocol) 服务器提供的工具。\n\n"
+                "⚠️ 重要：使用此工具前，你必须先调用 `list_mcp_servers` 工具来查看可用的 MCP 服务器及其工具列表。\n\n"
+                "从 `list_mcp_servers` 的返回结果中，你可以看到每个 MCP 服务器提供了哪些工具。"
+                "工具名称（tool_name）必须完全匹配，不要猜测或创造工具名称。\n\n"
+                "示例流程：\n"
+                "1. 先调用 list_mcp_servers 查看可用的服务器和工具\n"
+                "2. 从返回结果中找到你需要的 tool_name（例如: 'mcp__drawio__create_new_diagram'）\n"
+                "3. 调用 use_mcp_tool，使用准确的 tool_name\n\n"
+                "MCP 服务器可以扩展 AI 的能力，提供额外的功能。"
+            ),
             category="mcp",
             parameters={
                 "server_name": ToolParameter(
                     name="server_name",
                     type="string",
-                    description="MCP 服务器的名称（配置文件中定义的名称）",
+                    description="MCP 服务器的名称（配置文件中定义的名称，例如: 'drawio'）",
                     required=True
                 ),
                 "tool_name": ToolParameter(
                     name="tool_name",
                     type="string",
-                    description="要调用的工具名称",
+                    description=(
+                        "要调用的工具名称。"
+                        "⚠️ 必须从 `list_mcp_servers` 的返回结果中获取准确的工具名称，"
+                        "不要猜测！例如: 'mcp__drawio__create_new_diagram'"
+                    ),
                     required=True
                 ),
                 "arguments": ToolParameter(

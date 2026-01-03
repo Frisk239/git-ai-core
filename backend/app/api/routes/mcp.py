@@ -209,8 +209,17 @@ async def toggle_server(server_name: str, request: MCPServerToggleRequest) -> Di
 
         # 保存配置
         if mcp_manager.update_server(server_name, server):
-            # 如果禁用服务器且当前正在运行，则停止它
-            if not request.enabled:
+            # 🔥 参考 Cline：动态启动/停止服务器
+            if request.enabled:
+                # 启用服务器：尝试启动它
+                logger.info(f"启用并启动服务器: {server_name}")
+                success = await mcp_manager.start_server(server_name)
+                if success:
+                    logger.info(f"✅ 服务器 {server_name} 启用并启动成功")
+                else:
+                    logger.warning(f"⚠️ 服务器 {server_name} 已启用但启动失败")
+            else:
+                # 禁用服务器：如果正在运行，则停止它
                 status = await mcp_manager.get_server_status(server_name)
                 if status.get("connected"):
                     await mcp_manager.stop_server(server_name)
@@ -218,7 +227,7 @@ async def toggle_server(server_name: str, request: MCPServerToggleRequest) -> Di
 
             return {
                 "success": True,
-                "message": f"服务器 {server_name} 已{'启用' if request.enabled else '禁用'}",
+                "message": f"服务器 {server_name} 已{'启用并启动' if request.enabled else '禁用'}",
                 "enabled": request.enabled
             }
         else:

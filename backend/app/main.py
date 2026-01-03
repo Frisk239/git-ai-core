@@ -21,6 +21,73 @@ from app.core.database import init_db
 
 logger = logging.getLogger(__name__)
 
+
+async def _initialize_mcp_servers(mcp_manager: MCPServerManager):
+    """
+    初始化并启动所有已启用的 MCP 服务器
+
+    参考 Cline 设计：在应用启动时立即启动所有已启用的 MCP 服务器
+    这样在构建系统提示词时，MCP 服务器已经准备就绪，可以直接获取工具列表
+    """
+    try:
+        servers = mcp_manager.list_servers()
+        print(f"📋 发现 {len(servers)} 个配置的 MCP 服务器")
+        logger.info(f"Found {len(servers)} configured MCP servers")
+
+        for server_name, config in servers.items():
+            # 只启动已启用的服务器
+            enabled = config.get("enabled", True)
+            print(f"   - {server_name}: enabled={enabled}")
+
+            if not enabled:
+                logger.info(f"Skipping disabled MCP server: {server_name}")
+                continue
+
+            try:
+                print(f"🚀 正在启动 MCP 服务器: {server_name}")
+                logger.info(f"Starting MCP server: {server_name}")
+                success = await mcp_manager.start_server(server_name)
+                print(f"   启动结果: {success}")
+
+                if success:
+                    # 获取服务器状态
+                    status = await mcp_manager.get_server_status(server_name)
+                    connected = status.get("connected", False)
+                    print(f"   连接状态: {connected}")
+
+                    if connected:
+                        # 获取工具列表
+                        tools = await mcp_manager.list_tools(server_name)
+                        tool_count = len(tools) if tools else 0
+
+                        # 获取资源列表
+                        resources = await mcp_manager.list_resources(server_name)
+                        resource_count = len(resources) if resources else 0
+
+                        result_msg = (
+                            f"✅ MCP server '{server_name}' started successfully "
+                            f"({tool_count} tools, {resource_count} resources)"
+                        )
+                        print(f"   {result_msg}")
+                        logger.info(result_msg)
+                    else:
+                        warn_msg = f"⚠️ MCP server '{server_name}' started but not connected"
+                        print(f"   {warn_msg}")
+                        logger.warning(warn_msg)
+                else:
+                    error_msg = f"❌ Failed to start MCP server: {server_name}"
+                    print(f"   {error_msg}")
+                    logger.warning(error_msg)
+
+            except Exception as e:
+                logger.error(f"Failed to start MCP server '{server_name}': {e}", exc_info=True)
+
+        logger.info("MCP servers initialization completed")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize MCP servers: {e}", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -34,7 +101,16 @@ async def lifespan(app: FastAPI):
     app.state.git_manager = GitManager()
     app.state.ai_manager = AIManager()
     app.state.mcp_manager = MCPServerManager()
-    
+
+    # 🔥 参考 Cline：应用启动时自动启动所有已启用的 MCP 服务器
+    logger.info("开始初始化 MCP 服务器...")
+    print("\n" + "="*80)
+    print("🔧 初始化 MCP 服务器...")
+    print("="*80)
+    await _initialize_mcp_servers(app.state.mcp_manager)
+    print("✅ MCP 服务器初始化完成\n")
+    logger.info("MCP 服务器初始化完成")
+
     # 从数据库加载仓库
     loaded_count = app.state.git_manager.load_repositories_from_database()
     logger.info(f"Loaded {loaded_count} repositories from database")

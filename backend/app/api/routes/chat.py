@@ -192,8 +192,12 @@ async def smart_chat_v2(request: SmartChatRequest):
         "max_tokens": config.get("max_tokens", 4000)
     }
 
-    # 2. 创建任务引擎
-    task_engine = TaskEngine()
+    # 🔥 关键修复：从 app.state 获取 tool_coordinator
+    from app.main import app
+    tool_coordinator = app.state.tool_coordinator
+
+    # 2. 创建任务引擎，传入正确的 tool_coordinator
+    task_engine = TaskEngine(tool_coordinator=tool_coordinator)
 
     # 3. 流式执行任务
     async def event_generator():

@@ -46,7 +46,16 @@ class TaskEngine:
         max_consecutive_mistakes: int = 3
     ):
         self.ai_manager = ai_manager or AIManager()
-        self.tool_coordinator = tool_coordinator or get_tool_coordinator()
+
+        # 🔥 调试日志：追踪 tool_coordinator 参数
+        if tool_coordinator is not None:
+            logger.info(f"🔧 TaskEngine.__init__: 收到 tool_coordinator 参数, id={id(tool_coordinator)}, 工具数量={len(tool_coordinator.list_tools())}")
+            self.tool_coordinator = tool_coordinator
+        else:
+            logger.warning("🔧 TaskEngine.__init__: tool_coordinator 参数为 None，使用全局单例")
+            self.tool_coordinator = get_tool_coordinator()
+            logger.info(f"🔧 TaskEngine.__init__: 全局 coordinator id={id(self.tool_coordinator)}, 工具数量={len(self.tool_coordinator.list_tools())}")
+
         self.prompt_builder = PromptBuilder(self.tool_coordinator)
         # 🔥 移除这里的 tools_definition 初始化，改为每次执行任务时动态获取
         # self.tools_definition = tools_to_openai_functions(self.tool_coordinator)

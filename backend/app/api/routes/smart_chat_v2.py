@@ -8,12 +8,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import os
+import logging
 
 from app.api.routes.chat import get_ai_config
 from app.core.task import TaskEngine
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class SmartChatRequest(BaseModel):
@@ -44,9 +46,6 @@ async def smart_chat_stream(request: SmartChatRequest):
 
     # 🔥 关键修复：从 app.state 获取 tool_coordinator,而不是使用全局单例
     from app.main import app
-    import logging
-    logger = logging.getLogger(__name__)
-
     tool_coordinator = app.state.tool_coordinator
 
     # 🔥 调试日志：检查 tool_coordinator 状态
@@ -105,6 +104,9 @@ async def smart_chat(request: SmartChatRequest):
 
     返回完整的对话结果
     """
+    # 🔥 调试日志：函数入口
+    logger.info("🔧🔧🔧 smart_chat 函数被调用")
+
     # 1. 获取 AI 配置
     try:
         ai_config = await get_ai_config()
@@ -116,9 +118,6 @@ async def smart_chat(request: SmartChatRequest):
 
     # 🔥 关键修复：从 app.state 获取 tool_coordinator,而不是使用全局单例
     from app.main import app
-    import logging
-    logger = logging.getLogger(__name__)
-
     tool_coordinator = app.state.tool_coordinator
 
     # 🔥 调试日志：检查 tool_coordinator 状态
@@ -160,9 +159,21 @@ async def smart_chat(request: SmartChatRequest):
 async def list_available_tools():
     """列出所有可用工具"""
     from app.core.tools import get_tool_coordinator
+    from app.main import app
 
-    coordinator = get_tool_coordinator()
-    tools = coordinator.list_tools()
+    # 🔥 比较全局单例和 app.state 的 coordinator
+    global_coordinator = get_tool_coordinator()
+    state_coordinator = app.state.tool_coordinator
+
+    global_tools = global_coordinator.list_tools()
+    state_tools = state_coordinator.list_tools()
+
+    logger.info(f"🔧 /tools endpoint: 全局 coordinator 有 {len(global_tools)} 个工具")
+    logger.info(f"🔧 /tools endpoint: app.state coordinator 有 {len(state_tools)} 个工具")
+
+    # 使用 app.state 的 coordinator（正确的）
+    coordinator = state_coordinator
+    tools = state_tools
 
     return {
         "tools": [

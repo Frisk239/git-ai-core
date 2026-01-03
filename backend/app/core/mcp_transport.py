@@ -441,7 +441,7 @@ class MCPHttpTransport(MCPTransport):
             import httpx
             self._client = httpx.AsyncClient(
                 headers=self.headers,
-                timeout=30.0
+                timeout=60.0  # 增加到 60 秒，与 MCPClient 保持一致
             )
             self._is_connected = True
             logger.info(f"HTTP transport connected to {self.url}")

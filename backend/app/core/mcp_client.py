@@ -72,7 +72,7 @@ class MCPClient:
         self,
         server_name: str,
         transport: MCPTransport,
-        timeout: float = 30.0
+        timeout: float = 60.0  # 增加到 60 秒，适应慢速启动的 MCP 服务器
     ):
         self.server_name = server_name
         self.transport = transport

@@ -6,11 +6,9 @@
 """
 
 import logging
-import json
 from typing import Dict, Any
 
 from app.core.tools import ToolCoordinator
-from app.core.mcp_server import MCPServerManager
 
 
 logger = logging.getLogger(__name__)
@@ -21,16 +19,18 @@ class PromptBuilder:
 
     def __init__(self, tool_coordinator: ToolCoordinator):
         self.tool_coordinator = tool_coordinator
+        # 🔥 调试日志：记录初始化时的 tool_coordinator 状态
+        tools_count = len(self.tool_coordinator.list_tools())
+        logger.info(f"🔧 PromptBuilder.__init__: tool_coordinator id={id(tool_coordinator)}, 工具数量={tools_count}")
 
     async def build_prompt(self, context) -> str:
         """
         构建系统提示词（使用 OpenAI Tools API）
-        """
-        # 获取工具描述（排除 MCP 工具，因为会在单独的章节中说明）
-        tools_description = self._build_tools_description(exclude_mcp=True)
 
-        # 获取 MCP 服务器信息
-        mcp_section = await self._build_mcp_section()
+        🔥 参考 Cline：动态包含所有 MCP 工具定义，AI 可以直接调用，无需中间步骤
+        """
+        # 获取工具描述（包括所有静态工具和动态 MCP 工具）
+        tools_description = self._build_tools_description()
 
         # 获取仓库路径
         repo_path = getattr(context, 'repository_path', 'N/A')
@@ -139,8 +139,6 @@ class PromptBuilder:
 4. **分析结果**：基于工具返回的结果进行分析
 5. **给出答案**：向用户提供清晰的答案
 
-{mcp_section}
-
 ## Git 仓库信息
 
 - 当前仓库路径：{repo_path}
@@ -150,6 +148,7 @@ class PromptBuilder:
 **重要提示**：
 - 系统使用 OpenAI Tools API，当需要使用工具时，系统会自动为你调用
 - 你只需要决定何时使用哪个工具来完成用户的任务
+- **MCP 工具**：工具名称包含 `__mcp__` 的工具来自 MCP 服务器，可以直接调用，无需中间步骤
 - 不要尝试手动调用工具或模拟工具调用格式
 - 直接告诉用户你要执行什么操作，系统会自动为你调用相应的工具
 
@@ -157,22 +156,27 @@ class PromptBuilder:
 """
         return prompt
 
-    def _build_tools_description(self, exclude_mcp: bool = False) -> str:
+    def _build_tools_description(self) -> str:
         """
-        构建工具列表描述
+        构建工具列表描述（包括所有静态工具和动态 MCP 工具）
 
-        Args:
-            exclude_mcp: 是否排除 MCP 工具（因为会在单独章节中说明）
+        🔥 参考 Cline：直接在工具列表中包含所有 MCP 工具，AI 可以直接调用
         """
         tools = self.tool_coordinator.list_tools()
 
-        descriptions = []
-        for tool in tools:
-            # 跳过 MCP 工具（会在单独章节说明）
-            if exclude_mcp and tool.category == "mcp":
-                continue
+        # 🔥 调试日志
+        logger.info(f"🔧 _build_tools_description: 共有 {len(tools)} 个工具")
 
-            descriptions.append(f"**{tool.name}**: {tool.description}")
+        descriptions = []
+        mcp_tools_count = 0
+
+        for tool in tools:
+            # 为 MCP 动态工具添加特殊标记
+            if tool.category == "mcp_dynamic":
+                mcp_tools_count += 1
+                descriptions.append(f"**{tool.name}** 📌: {tool.description}")
+            else:
+                descriptions.append(f"**{tool.name}**: {tool.description}")
 
             # 添加参数说明
             if tool.parameters:
@@ -183,135 +187,11 @@ class PromptBuilder:
 
             descriptions.append("")  # 空行分隔
 
-        return "\n".join(descriptions)
+        # 添加 MCP 工具统计
+        if mcp_tools_count > 0:
+            logger.info(f"系统提示词包含 {mcp_tools_count} 个 MCP 动态工具")
 
-    async def _build_mcp_section(self) -> str:
-        """
-        构建 MCP 服务器信息章节
+        result = "\n".join(descriptions)
+        logger.info(f"🔧 工具描述生成完成，总长度: {len(result)} 字符")
 
-        参考 Cline 的 components/mcp.ts 实现
-        """
-        try:
-            # 获取 MCP 服务器管理器
-            from app.core.tools.handlers.mcp_handler import get_mcp_server_manager
-            mcp_manager = get_mcp_server_manager()
-
-            # 获取所有服务器配置
-            servers_config = mcp_manager.list_servers()
-
-            # 如果没有配置 MCP 服务器，返回空字符串
-            if not servers_config:
-                return ""
-
-            # 构建 MCP 章节
-            mcp_servers_info = []
-
-            for server_name, config in servers_config.items():
-                # 跳过禁用的服务器
-                if not config.get("enabled", True):
-                    continue
-
-                # 获取服务器状态
-                status_info = await mcp_manager.get_server_status(server_name)
-
-                # 只显示可用的服务器
-                if status_info.get("status") == "not_configured":
-                    continue
-
-                server_desc = config.get("description", "")
-                transport_type = config.get("transportType", "stdio")
-
-                server_section = f"### {server_name}\n"
-                if server_desc:
-                    server_section += f"**描述**: {server_desc}\n\n"
-                server_section += f"**传输类型**: {transport_type}\n\n"
-                server_section += f"**状态**: {status_info.get('status', 'unknown')}\n\n"
-
-                # 如果服务器正在运行，获取工具和资源列表
-                if status_info.get("connected"):
-                    try:
-                        # 获取工具列表
-                        tools = await mcp_manager.list_tools(server_name)
-                        if tools:
-                            server_section += "**可用工具** (使用 use_mcp_tool 时需要的准确 tool_name):\n\n"
-                            for tool in tools:
-                                tool_name = tool["name"]
-                                tool_desc = tool.get("description", tool_name)
-                                # 🔥 让工具名称更突出
-                                server_section += f"- **工具名称**: `{tool_name}`\n"
-                                server_section += f"  描述: {tool_desc}\n"
-
-                                # 添加参数 schema
-                                input_schema = tool.get("input_schema", {})
-                                if input_schema and "properties" in input_schema:
-                                    server_section += f"  参数: {json.dumps(input_schema, ensure_ascii=False)}\n"
-                                server_section += "\n"
-
-                        # 获取资源列表
-                        resources = await mcp_manager.list_resources(server_name)
-                        if resources:
-                            server_section += "**可用资源**:\n\n"
-                            for resource in resources:
-                                uri = resource["uri"]
-                                res_name = resource.get("name", "")
-                                res_desc = resource.get("description", "")
-                                server_section += f"- `{uri}`"
-                                if res_name:
-                                    server_section += f" ({res_name})"
-                                if res_desc:
-                                    server_section += f": {res_desc}"
-                                server_section += "\n"
-                            server_section += "\n"
-
-                    except Exception as e:
-                        logger.warning(f"获取 {server_name} 的工具/资源列表失败: {e}")
-
-                mcp_servers_info.append(server_section)
-
-            # 如果没有可用的 MCP 服务器
-            if not mcp_servers_info:
-                return ""
-
-            # 构建 MCP 章节
-            mcp_section = """## MCP 服务器
-
-Model Context Protocol (MCP) 服务器可以扩展你的能力，提供额外的工具和资源。
-
-### ⚠️ 重要：使用 MCP 工具的正确流程
-
-在调用 MCP 工具之前，你必须：
-
-1. **首先**调用 `list_mcp_servers` 工具查看所有可用的 MCP 服务器及其工具
-2. **从返回结果中**找到你需要的工具的准确名称（`tool_name`）
-3. **然后**调用 `use_mcp_tool`，使用完全准确的 `server_name` 和 `tool_name`
-
-**绝对不要**猜测或创造工具名称！所有可用的工具名称都会在 `list_mcp_servers` 的返回结果中明确列出。
-
-### MCP 工具使用方法
-
-1. **list_mcp_servers** - 列出所有可用的 MCP 服务器及其工具/资源
-   - 这是使用任何 MCP 工具前的**必需步骤**
-   - 返回结果包含每个服务器的名称、状态、可用工具列表
-   - 工具列表包含每个工具的准确名称和描述
-
-2. **use_mcp_tool** - 调用 MCP 服务器的工具
-   - `server_name`: MCP 服务器名称（从 list_mcp_servers 获取）
-   - `tool_name`: 要调用的工具名称（⚠️ 必须从 list_mcp_servers 返回结果中获取准确名称）
-   - `arguments`: 工具参数（JSON 字符串，根据工具的 input_schema）
-
-3. **access_mcp_resource** - 访问 MCP 服务器的资源
-   - `server_name`: MCP 服务器名称
-   - `uri`: 资源 URI
-
-### 已连接的 MCP 服务器
-
-"""
-
-            mcp_section += "\n".join(mcp_servers_info)
-
-            return mcp_section
-
-        except Exception as e:
-            logger.error(f"构建 MCP 章节失败: {e}", exc_info=True)
-            return ""
-
+        return result

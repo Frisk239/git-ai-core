@@ -48,7 +48,8 @@ class TaskEngine:
         self.ai_manager = ai_manager or AIManager()
         self.tool_coordinator = tool_coordinator or get_tool_coordinator()
         self.prompt_builder = PromptBuilder(self.tool_coordinator)
-        self.tools_definition = tools_to_openai_functions(self.tool_coordinator)
+        # 🔥 移除这里的 tools_definition 初始化，改为每次执行任务时动态获取
+        # self.tools_definition = tools_to_openai_functions(self.tool_coordinator)
 
         # 上下文管理
         self.token_counter = TokenCounter()
@@ -682,12 +683,15 @@ class TaskEngine:
     ) -> Optional[Dict[str, Any]]:
         """调用 AI（使用 Tools API）"""
         try:
+            # 🔥 每次调用 AI 时动态获取最新的工具定义（支持运行时添加/删除 MCP 工具）
+            tools_definition = tools_to_openai_functions(self.tool_coordinator)
+
             response = await self.ai_manager.chat_with_tools(
                 provider=ai_config["ai_provider"],
                 model=ai_config["ai_model"],
                 messages=messages,
                 api_key=ai_config["ai_api_key"],
-                tools=self.tools_definition,
+                tools=tools_definition,  # 🔥 使用动态获取的工具定义
                 base_url=ai_config.get("ai_base_url"),
                 temperature=ai_config.get("temperature", 0.7),
                 max_tokens=ai_config.get("max_tokens", 4000),

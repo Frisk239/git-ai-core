@@ -135,7 +135,13 @@ class MCPServerManager:
         return []
 
     async def start_server(self, name: str) -> bool:
-        """启动MCP服务器"""
+        """
+        启动MCP服务器
+
+        注意：此方法不检查 enabled 配置，因为：
+        - 应用启动时：由 _initialize_mcp_servers 负责，它会检查 enabled
+        - 运行时启动：由前端触发，用户明确要启动，不需要再检查 enabled
+        """
         try:
             # 检查是否已经在运行
             if name in self._active_clients:
@@ -148,10 +154,9 @@ class MCPServerManager:
                 logger.error(f"Server configuration not found: {name}")
                 return False
 
-            # 检查是否启用
-            if not config.get('enabled', True):
-                logger.warning(f"Server {name} is disabled")
-                return False
+            # 🔥 不检查 enabled - 让调用者决定是否启动
+            # 应用启动时由 _initialize_mcp_servers 检查
+            # 运行时由前端通过 toggle API 控制
 
             # 创建并连接客户端
             logger.info(f"Starting MCP server: {name}")

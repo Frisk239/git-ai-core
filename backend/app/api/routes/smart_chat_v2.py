@@ -42,8 +42,23 @@ async def smart_chat_stream(request: SmartChatRequest):
     # 2. 确定仓库路径
     repository_path = request.repository_path or os.getcwd()
 
-    # 3. 创建任务引擎
-    task_engine = TaskEngine()
+    # 🔥 关键修复：从 app.state 获取 tool_coordinator,而不是使用全局单例
+    from app.main import app
+    import logging
+    logger = logging.getLogger(__name__)
+
+    tool_coordinator = app.state.tool_coordinator
+
+    # 🔥 调试日志：检查 tool_coordinator 状态
+    tools_count = len(tool_coordinator.list_tools())
+    coordinator_id = id(tool_coordinator)
+    logger.info(f"🔧 smart_chat_v2: tool_coordinator id={coordinator_id}, 工具数量={tools_count}")
+
+    # 3. 创建任务引擎，传入正确的 tool_coordinator
+    task_engine = TaskEngine(tool_coordinator=tool_coordinator)
+
+    # 🔥 调试日志：验证 TaskEngine 内部的 tool_coordinator
+    logger.info(f"🔧 TaskEngine.tool_coordinator id={id(task_engine.tool_coordinator)}, 工具数量={len(task_engine.tool_coordinator.list_tools())}")
 
     # 4. 执行任务（使用 Server-Sent Events 返回流式数据）
     from fastapi.responses import StreamingResponse
@@ -99,8 +114,23 @@ async def smart_chat(request: SmartChatRequest):
     # 2. 确定仓库路径
     repository_path = request.repository_path or os.getcwd()
 
-    # 3. 创建任务引擎
-    task_engine = TaskEngine()
+    # 🔥 关键修复：从 app.state 获取 tool_coordinator,而不是使用全局单例
+    from app.main import app
+    import logging
+    logger = logging.getLogger(__name__)
+
+    tool_coordinator = app.state.tool_coordinator
+
+    # 🔥 调试日志：检查 tool_coordinator 状态
+    tools_count = len(tool_coordinator.list_tools())
+    coordinator_id = id(tool_coordinator)
+    logger.info(f"🔧 smart_chat: tool_coordinator id={coordinator_id}, 工具数量={tools_count}")
+
+    # 3. 创建任务引擎，传入正确的 tool_coordinator
+    task_engine = TaskEngine(tool_coordinator=tool_coordinator)
+
+    # 🔥 调试日志：验证 TaskEngine 内部的 tool_coordinator
+    logger.info(f"🔧 TaskEngine.tool_coordinator id={id(task_engine.tool_coordinator)}, 工具数量={len(task_engine.tool_coordinator.list_tools())}")
 
     # 4. 执行任务并收集所有事件
     events = []

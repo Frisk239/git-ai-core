@@ -6,6 +6,13 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 
+# 🔥 配置日志级别（必须在导入其他模块之前）
+logging.basicConfig(
+    level=logging.INFO,  # 设置为 INFO 级别
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+
 # Windows上需要设置事件循环策略以支持子进程
 # 必须在导入任何其他模块之前设置，必须在创建事件循环之前设置
 if sys.platform == 'win32':
@@ -26,8 +33,8 @@ async def _initialize_mcp_servers(mcp_manager: MCPServerManager):
     """
     初始化并启动所有已启用的 MCP 服务器
 
-    参考 Cline 设计：在应用启动时立即启动所有已启用的 MCP 服务器
-    这样在构建系统提示词时，MCP 服务器已经准备就绪，可以直接获取工具列表
+    🔥 正确逻辑：只启动配置中 enabled=true 的服务器
+    配置文件中的 enabled 状态由前端管理，反映用户的意图
     """
     try:
         servers = mcp_manager.list_servers()
@@ -35,12 +42,12 @@ async def _initialize_mcp_servers(mcp_manager: MCPServerManager):
         logger.info(f"Found {len(servers)} configured MCP servers")
 
         for server_name, config in servers.items():
-            # 只启动已启用的服务器
+            # 🔥 关键：只启动用户启用的服务器（enabled=true）
             enabled = config.get("enabled", True)
             print(f"   - {server_name}: enabled={enabled}")
 
             if not enabled:
-                logger.info(f"Skipping disabled MCP server: {server_name}")
+                logger.info(f"跳过已禁用的 MCP 服务器: {server_name}")
                 continue
 
             try:
@@ -110,6 +117,26 @@ async def lifespan(app: FastAPI):
     await _initialize_mcp_servers(app.state.mcp_manager)
     print("✅ MCP 服务器初始化完成\n")
     logger.info("MCP 服务器初始化完成")
+
+    # 🔥🔥 参考 Cline：动态注册所有 MCP 工具为独立的 AI 可调用工具
+    logger.info("开始动态注册 MCP 工具...")
+    print("="*80)
+    print("🔧 注册 MCP 动态工具...")
+    print("="*80)
+
+    from app.core.tools import ToolCoordinator
+    tool_coordinator = ToolCoordinator()
+    tool_coordinator.initialize_default_tools()  # 先初始化静态工具（同步函数）
+
+    # 🔥 关键修复：传入已启动服务器的 mcp_manager，而不是创建新实例
+    # 这样可以获取到实际运行中的服务器（_active_clients）
+    await tool_coordinator.initialize_mcp_tools(app.state.mcp_manager)
+
+    # 将工具协调器保存到 app.state
+    app.state.tool_coordinator = tool_coordinator
+
+    print("✅ MCP 动态工具注册完成\n")
+    logger.info("MCP 动态工具注册完成")
 
     # 从数据库加载仓库
     loaded_count = app.state.git_manager.load_repositories_from_database()

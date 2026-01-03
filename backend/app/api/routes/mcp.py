@@ -64,6 +64,60 @@ def get_mcp_manager() -> MCPServerManager:
     return app.state.mcp_manager
 
 
+def get_tool_coordinator():
+    """获取工具协调器实例"""
+    from app.main import app
+    return app.state.tool_coordinator
+
+
+async def _refresh_mcp_tools():
+    """
+    🔥 重新注册 MCP 动态工具
+
+    当 MCP 服务器启动或停止后调用此函数，确保工具注册与实际运行的服务器同步
+    """
+    try:
+        from app.main import app
+
+        mcp_manager = app.state.mcp_manager
+        tool_coordinator = app.state.tool_coordinator
+
+        if not mcp_manager or not tool_coordinator:
+            logger.warning("MCP 管理器或工具协调器未初始化")
+            return
+
+        # 🔥 调试日志：显示当前运行的服务器
+        active_servers = list(mcp_manager._active_clients.keys())
+        logger.info(f"🔧 当前运行中的 MCP 服务器: {active_servers}")
+
+        # 🔥 策略：清空所有 mcp_dynamic 类别的工具，然后重新注册
+        # 1. 移除所有现有的 MCP 动态工具
+        all_tools = tool_coordinator.list_tools()
+        removed_count = 0
+
+        for tool in all_tools:
+            if tool.category == "mcp_dynamic":
+                tool_coordinator.unregister(tool.name)
+                removed_count += 1
+
+        if removed_count > 0:
+            logger.info(f"移除了 {removed_count} 个旧的 MCP 动态工具")
+
+        # 2. 重新注册所有运行中服务器的工具
+        from app.core.tools.mcp_dynamic import register_all_mcp_tools
+
+        count = await register_all_mcp_tools(tool_coordinator, mcp_manager)
+
+        if count > 0:
+            logger.info(f"✅ 重新注册了 {count} 个 MCP 动态工具")
+        else:
+            logger.info("⚠️ 没有注册任何 MCP 动态工具（可能服务器未完全连接）")
+
+    except Exception as e:
+        logger.error(f"重新注册 MCP 工具失败: {e}", exc_info=True)
+
+
+
 # ==================== 服务器管理端点 ====================
 
 @router.get("/servers")
@@ -195,48 +249,61 @@ class MCPServerToggleRequest(BaseModel):
 
 @router.patch("/servers/{server_name}/toggle")
 async def toggle_server(server_name: str, request: MCPServerToggleRequest) -> Dict[str, Any]:
-    """切换MCP服务器启用/禁用状态"""
+    """切换MCP服务器启用/禁用状态（前端使用）"""
     try:
         mcp_manager = get_mcp_manager()
 
-        # 获取当前服务器配置
-        server = mcp_manager.get_server(server_name)
-        if not server:
+        # 🔥 关键修复：先更新配置文件中的 enabled 字段（持久化前端状态）
+        config = mcp_manager.get_server(server_name)
+        if config:
+            config["enabled"] = request.enabled
+            mcp_manager.update_server(server_name, config)
+            logger.info(f"✅ 已更新配置文件: {server_name} enabled={request.enabled}")
+        else:
+            logger.error(f"❌ 服务器配置不存在: {server_name}")
             raise HTTPException(status_code=404, detail=f"服务器 {server_name} 不存在")
 
-        # 更新启用状态
-        server["enabled"] = request.enabled
+        # 🔥 然后处理启动和停止
+        if request.enabled:
+            # 启动服务器
+            logger.info(f"🚀 启动服务器: {server_name}")
+            success = await mcp_manager.start_server(server_name)
+            if success:
+                logger.info(f"✅ 服务器 {server_name} 启动成功")
 
-        # 保存配置
-        if mcp_manager.update_server(server_name, server):
-            # 🔥 参考 Cline：动态启动/停止服务器
-            if request.enabled:
-                # 启用服务器：尝试启动它
-                logger.info(f"启用并启动服务器: {server_name}")
-                success = await mcp_manager.start_server(server_name)
-                if success:
-                    logger.info(f"✅ 服务器 {server_name} 启用并启动成功")
-                else:
-                    logger.warning(f"⚠️ 服务器 {server_name} 已启用但启动失败")
+                # 🔥 等待一小段时间，确保服务器完全初始化
+                import asyncio
+                await asyncio.sleep(1)
+
+                # 🔥 关键：启动成功后，重新注册 MCP 工具
+                await _refresh_mcp_tools()
             else:
-                # 禁用服务器：如果正在运行，则停止它
-                status = await mcp_manager.get_server_status(server_name)
-                if status.get("connected"):
-                    await mcp_manager.stop_server(server_name)
-                    logger.info(f"服务器 {server_name} 已禁用并停止")
-
-            return {
-                "success": True,
-                "message": f"服务器 {server_name} 已{'启用并启动' if request.enabled else '禁用'}",
-                "enabled": request.enabled
-            }
+                logger.warning(f"⚠️ 服务器 {server_name} 启动失败")
+                return {
+                    "success": False,
+                    "message": f"服务器 {server_name} 启动失败",
+                    "enabled": config.get("enabled", False)
+                }
         else:
-            raise HTTPException(status_code=500, detail="Failed to update server configuration")
+            # 停止服务器
+            status = await mcp_manager.get_server_status(server_name)
+            if status.get("connected"):
+                await mcp_manager.stop_server(server_name)
+                logger.info(f"✅ 服务器 {server_name} 已停止")
+
+                # 🔥 关键：停止后，重新注册 MCP 工具（移除已停止的工具）
+                await _refresh_mcp_tools()
+
+        return {
+            "success": True,
+            "message": f"服务器 {server_name} 已{'启动' if request.enabled else '停止'}",
+            "enabled": request.enabled
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to toggle server: {e}")
+        logger.error(f"Failed to toggle server: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -284,6 +351,8 @@ async def start_server(server_name: str) -> Dict[str, Any]:
         success = await mcp_manager.start_server(server_name)
 
         if success:
+            # 🔥 启动成功后，重新注册 MCP 工具
+            await _refresh_mcp_tools()
             return {"success": True, "message": f"服务器 {server_name} 启动成功"}
         else:
             raise HTTPException(status_code=500, detail=f"Failed to start server {server_name}")
@@ -304,6 +373,8 @@ async def stop_server(server_name: str) -> Dict[str, Any]:
         success = await mcp_manager.stop_server(server_name)
 
         if success:
+            # 🔥 停止成功后，重新注册 MCP 工具
+            await _refresh_mcp_tools()
             return {"success": True, "message": f"服务器 {server_name} 停止成功"}
         else:
             raise HTTPException(status_code=500, detail=f"Failed to stop server {server_name}")
@@ -324,6 +395,8 @@ async def restart_server(server_name: str) -> Dict[str, Any]:
         success = await mcp_manager.restart_server(server_name)
 
         if success:
+            # 🔥 重启成功后，重新注册 MCP 工具
+            await _refresh_mcp_tools()
             return {"success": True, "message": f"服务器 {server_name} 重启成功"}
         else:
             raise HTTPException(status_code=500, detail=f"Failed to restart server {server_name}")

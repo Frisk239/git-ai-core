@@ -30,8 +30,15 @@ def tools_to_openai_functions(coordinator: ToolCoordinator) -> List[Dict[str, An
         }
     }
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     tools = coordinator.list_tools()
     openai_functions = []
+
+    # 🔥 调试日志
+    mcp_dynamic_count = sum(1 for t in tools if t.category == "mcp_dynamic")
+    logger.info(f"🔧 tools_to_openai_functions: 总共 {len(tools)} 个工具 (MCP动态: {mcp_dynamic_count})")
 
     for tool in tools:
         function_def = {
@@ -43,6 +50,8 @@ def tools_to_openai_functions(coordinator: ToolCoordinator) -> List[Dict[str, An
             }
         }
         openai_functions.append(function_def)
+
+    logger.info(f"🔧 转换为 OpenAI Functions 格式完成: {len(openai_functions)} 个工具")
 
     return openai_functions
 

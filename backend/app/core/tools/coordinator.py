@@ -152,7 +152,7 @@ class ToolCoordinator:
         return "\n".join(descriptions)
 
     def initialize_default_tools(self):
-        """初始化默认工具集"""
+        """初始化默认工具集（静态工具）"""
         if self._initialized:
             return
 
@@ -195,13 +195,37 @@ class ToolCoordinator:
         # 注册任务完成工具(关键!)
         self.register(AttemptCompletionToolHandler())
 
-        # 注册 MCP 工具
+        # 注册 MCP 工具（保留兼容性）
         self.register(UseMcpToolHandler())
         self.register(AccessMcpResourceHandler())
         self.register(ListMcpServersHandler())
 
         self._initialized = True
         logger.info(f"默认工具初始化完成，共注册 {len(self.handlers)} 个工具")
+
+    async def initialize_mcp_tools(self, mcp_manager):
+        """
+        🔥 参考 Cline：动态注册所有已启动 MCP 服务器的工具
+
+        将每个 MCP 工具转换为独立的 AI 可调用工具
+
+        Args:
+            mcp_manager: 已启动服务器的 MCP 服务器管理器实例
+        """
+        try:
+            from .mcp_dynamic import register_all_mcp_tools
+
+            # 注册所有 MCP 工具（传入已启动服务器的 mcp_manager）
+            logger.info("🔧 开始动态注册 MCP 工具...")
+            count = await register_all_mcp_tools(self, mcp_manager)
+
+            if count > 0:
+                logger.info(f"✅ 成功注册 {count} 个 MCP 动态工具")
+            else:
+                logger.warning("⚠️ 没有注册任何 MCP 工具（没有运行中的 MCP 服务器）")
+
+        except Exception as e:
+            logger.error(f"注册 MCP 工具失败: {e}", exc_info=True)
 
 
 # 全局单例

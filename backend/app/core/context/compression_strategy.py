@@ -2,8 +2,8 @@
 上下文压缩策略
 
 参考 Cline 的实现：
-1. 渐进式压缩：先优化，再截断，最后摘要
-2. 智能文件处理：识别重复的文件读取
+1. 渐进式压缩：先优化文件读取，再截断消息
+2. 智能文件处理：识别并标记重复的文件读取（而非删除）
 3. 分层消息管理：保留关键消息，压缩历史消息
 """
 
@@ -14,6 +14,11 @@ from enum import Enum
 
 from app.core.context.token_counter import TokenCounter
 from app.core.ai_manager import AIManager
+from app.core.context.file_read_tracker import (
+    FileReadTracker,
+    extract_file_reads_from_messages,
+    replace_duplicate_file_reads
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +38,9 @@ class CompressionStrategy:
     参考 Cline 的 ContextManager 实现
     """
 
-    # 压缩阈值
-    SHOULD_COMPRESS_THRESHOLD = 0.8  # 当使用量超过 80% 时压缩
-    MUST_COMPRESS_THRESHOLD = 0.95  # 当使用量超过 95% 时强制压缩
+    # 压缩阈值（参考 Cline，更激进地在早期压缩）
+    SHOULD_COMPRESS_THRESHOLD = 0.5  # 当使用量超过 50% 时压缩（原来是 80%）
+    MUST_COMPRESS_THRESHOLD = 0.7  # 当使用量超过 70% 时强制压缩（原来是 95%）
 
     # 保留策略
     KEEP_FIRST_N_PAIRS = 1  # 保留前 N 轮对话
@@ -44,6 +49,7 @@ class CompressionStrategy:
     def __init__(self, ai_manager: Optional[AIManager] = None):
         self.ai_manager = ai_manager or AIManager()
         self.token_counter = TokenCounter()
+        self.file_read_tracker = FileReadTracker()
 
     def should_compress(
         self,
@@ -81,10 +87,18 @@ class CompressionStrategy:
         """
         压缩对话历史
 
-        参考 Cline 的分层压缩策略：
-        1. 保留系统提示词（始终保留）
-        2. 保留第一轮和最后几轮对话
-        3. 中间的消息按比例截断或摘要
+        参考 Cline 的两阶段策略：
+        1. **第一阶段：优化重复文件读取**（不删除消息，只替换内容）
+           - 检测重复的文件读取
+           - 将旧的读取替换为简短提示
+           - 保留最新的文件读取内容
+           - 这样 AI 仍然知道已经读过这些文件
+
+        2. **第二阶段：三明治截断**（仅在需要时）
+           - 保留系统提示词（始终保留）
+           - 保留第一轮用户消息和助手回复（任务起点）
+           - 删除中间的历史消息
+           - 保留最后几轮对话（最近状态）
 
         Args:
             messages: 原始消息列表
@@ -102,77 +116,89 @@ class CompressionStrategy:
         print(f"\n🗜️  开始压缩上下文...")
         print(f"   - 原始消息数: {len(messages)}")
 
-        # 确定压缩级别
-        if not compression_level:
-            compression_level = self._determine_compression_level(messages, model)
+        # === 阶段 1: 优化重复文件读取（Cline 的关键策略）===
+        print(f"\n📖 阶段 1: 扫描文件读取...")
 
-        print(f"   - 压缩级别: {compression_level.value}")
+        # 提取所有文件读取
+        file_reads = extract_file_reads_from_messages(messages)
+        print(f"   - 发现 {len(file_reads)} 次文件读取")
+
+        # 记录到追踪器
+        for file_path, msg_idx, content_idx, content_length in file_reads:
+            self.file_read_tracker.record_file_read(file_path, msg_idx, content_idx, content_length)
+
+        # 打印分析报告
+        report = self.file_read_tracker.get_optimization_report()
+        print(report)
+
+        # 如果有重复读取，进行优化
+        optimized_messages = messages
+        if self.file_read_tracker.should_optimize(threshold_savings=1000):
+            print(f"\n✨ 阶段 1b: 优化重复文件读取...")
+            optimized_messages = replace_duplicate_file_reads(messages, self.file_read_tracker)
+
+            # 计算节省
+            savings = self.file_read_tracker.calculate_savings()
+            print(f"   ✅ 已替换 {savings['file_count']} 个文件的重复读取")
+            print(f"   ✅ 节省约 {savings['total_savings']:,} 字符")
+
+        # 检查优化后是否还需要截断
+        total_chars = sum(len(str(msg.get("content", ""))) for msg in optimized_messages)
+        MAX_TOTAL_CHARS = 40_000  # GLM 模型限制
+
+        if total_chars <= MAX_TOTAL_CHARS:
+            print(f"\n✅ 优化后字符数: {total_chars:,} (在限制内)")
+            return optimized_messages
+
+        # === 阶段 2: 三明治截断（仅在优化后仍然超限时）===
+        print(f"\n📊 阶段 2: 消息截断...")
+        print(f"   - 当前字符数: {total_chars:,} > {MAX_TOTAL_CHARS:,}")
+        print(f"   - 需要截断历史消息...")
 
         # 1. 提取系统提示词（如果有）
-        system_messages = [msg for msg in messages if msg.get("role") == "system"]
-        non_system_messages = [msg for msg in messages if msg.get("role") != "system"]
+        system_messages = [msg for msg in optimized_messages if msg.get("role") == "system"]
+        non_system_messages = [msg for msg in optimized_messages if msg.get("role") != "system"]
 
-        # 2. 保留第一轮和最后几轮对话
+        if len(non_system_messages) <= 4:
+            # 非系统消息太少，不需要压缩
+            return optimized_messages
+
+        # 2. Cline 的"三明治截断法"
         compressed = []
 
         # 添加系统消息
         compressed.extend(system_messages)
 
-        # 保留第一轮对话
-        if len(non_system_messages) >= 2:
-            compressed.extend(non_system_messages[:2])
-        else:
-            compressed.extend(non_system_messages)
-            return compressed
+        # 保留第一轮对话（前 2 条消息：user + assistant）
+        first_pair = non_system_messages[:2]
+        compressed.extend(first_pair)
 
-        # 计算要保留的消息数量
-        total_pairs = len(non_system_messages) // 2
-        keep_first = self.KEEP_FIRST_N_PAIRS * 2
-        keep_last = self.KEEP_LAST_N_PAIRS * 2
-
-        if compression_level == CompressionLevel.LIGHT:
-            # 保留 75%
-            keep_middle = max(0, total_pairs - int(total_pairs * 0.25)) * 2
+        # 确定要保留的最后几轮对话
+        # 参考 Cline: keep="lastTwo" 表示保留最后 1 轮对话（2 条消息）
+        if compression_level == CompressionLevel.AGGRESSIVE:
+            # 激进压缩：只保留第一轮和最后一轮
+            last_pair_count = 2
         elif compression_level == CompressionLevel.MEDIUM:
-            # 保留 50%
-            keep_middle = max(0, total_pairs - int(total_pairs * 0.5)) * 2
-        else:  # AGGRESSIVE
-            # 保留 25%
-            keep_middle = max(0, total_pairs - int(total_pairs * 0.75)) * 2
-
-        # 中间部分
-        middle_start = keep_first
-        middle_end = len(non_system_messages) - keep_last
-
-        if middle_start < middle_end:
-            middle_messages = non_system_messages[middle_start:middle_end]
-
-            if compression_level == CompressionLevel.AGGRESSIVE:
-                # 激进压缩：使用 AI 摘要
-                summary = await self._summarize_messages(middle_messages, ai_config)
-                if summary:
-                    compressed.append({
-                        "role": "system",
-                        "content": f"以下是之前对话的摘要：\n\n{summary}"
-                    })
-            else:
-                # 轻度/中度压缩：跳过部分消息
-                if compression_level == CompressionLevel.MEDIUM:
-                    # 保留中间的一半
-                    skip_count = len(middle_messages) // 2
-                    middle_keep = middle_messages[::skip_count + 1]
-                    compressed.extend(middle_keep)
-                else:  # LIGHT
-                    # 保留中间的 75%
-                    step = max(1, len(middle_messages) // (keep_middle // 2))
-                    compressed.extend(middle_messages[::step])
+            # 中度压缩：保留第一轮和最后两轮
+            last_pair_count = 4
+        else:  # LIGHT
+            # 轻度压缩：保留第一轮和最后 4 轮
+            last_pair_count = 8
 
         # 添加最后的对话
-        if keep_last > 0:
-            compressed.extend(non_system_messages[-keep_last:])
+        if len(non_system_messages) > 2 + last_pair_count:
+            last_pairs = non_system_messages[-last_pair_count:]
+            compressed.extend(last_pairs)
+        else:
+            # 如果消息总数不够，就全部保留
+            compressed.extend(non_system_messages[2:])
 
-        print(f"   - 压缩后消息数: {len(compressed)}")
-        print(f"   - 压缩率: {(1 - len(compressed)/len(messages)) * 100:.1f}%")
+        # 计算最终字符数
+        final_chars = sum(len(str(msg.get("content", ""))) for msg in compressed)
+        print(f"   - 截断后消息数: {len(compressed)}")
+        print(f"   - 截断后字符数: {final_chars:,}")
+        print(f"   - 删除了 {len(optimized_messages) - len(compressed)} 条历史消息")
+        print(f"   - 总压缩率: {(1 - len(compressed)/len(messages)) * 100:.1f}%")
 
         return compressed
 

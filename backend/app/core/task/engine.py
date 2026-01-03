@@ -12,7 +12,6 @@ import json
 import logging
 import uuid
 from typing import Dict, Any, List, Optional, AsyncIterator
-from datetime import datetime
 
 from app.core.ai_manager import AIManager
 from app.core.tools import (
@@ -25,6 +24,8 @@ from app.core.task.task_state import TaskState
 from app.core.task.tools_converter import tools_to_openai_functions, parse_tool_call_arguments
 from app.core.task.prompt_builder import PromptBuilder
 from app.core.context import TokenCounter, CompressionStrategy
+from app.core.context.conversation_history import ConversationHistoryManager, ToolCall
+from app.core.context.task_history import TaskHistoryManager
 
 
 logger = logging.getLogger(__name__)
@@ -53,13 +54,19 @@ class TaskEngine:
         self.token_counter = TokenCounter()
         self.compression_strategy = CompressionStrategy(self.ai_manager)
 
+        # 对话历史管理器（延迟初始化）
+        self.history_manager: Optional[ConversationHistoryManager] = None
+
+        # 任务历史管理器（延迟初始化）
+        self.task_history_manager: Optional[TaskHistoryManager] = None
+
         # 配置
         self.max_iterations = max_iterations
         self.max_consecutive_mistakes = max_consecutive_mistakes
 
         # 任务状态
         self.task_state = TaskState()
-        self.conversation_history = []
+        self.conversation_history = []  # 兼容旧代码，后续移除
 
     async def execute_task(
         self,
@@ -78,33 +85,71 @@ class TaskEngine:
         Yields:
             任务进度信息（用于流式响应）
         """
+        # 生成任务 ID
+        task_id = str(uuid.uuid4())[:8]
+
         print("\n" + "="*80)
         print(f"🚀 开始执行任务")
         print("="*80)
         print(f"📝 用户输入: {user_input}")
         print(f"📁 仓库路径: {repository_path}")
+        print(f"🆔 任务 ID: {task_id}")
         print(f"🤖 AI 配置: {ai_config.get('ai_provider')} - {ai_config.get('ai_model')}")
         print("="*80 + "\n")
 
-        logger.info(f"=== 开始任务 ===")
+        logger.info(f"=== 开始任务 (ID: {task_id}) ===")
         logger.info(f"用户输入: {user_input[:100]}...")
         logger.info(f"仓库路径: {repository_path}")
 
-        # 1. 初始化
+        # 1. 初始化任务历史管理器
+        self.task_history_manager = TaskHistoryManager(
+            workspace_path=repository_path
+        )
+        await self.task_history_manager.load_history()
+
+        # 2. 初始化对话历史管理器
+        self.history_manager = ConversationHistoryManager(
+            task_id=task_id,
+            workspace_path=repository_path
+        )
+
+        # 尝试加载历史记录（恢复任务）
+        loaded_history = await self.history_manager.load_history()
+        if loaded_history:
+            print(f"[INFO] 已加载任务历史: {len(self.history_manager.messages)} 条消息")
+
+        # 3. 添加或更新任务到历史列表
+        task_description = user_input[:100] + "..." if len(user_input) > 100 else user_input
+        history_item = self.task_history_manager.add_or_update_task(
+            task_id=task_id,
+            task_description=task_description,
+            api_provider=ai_config.get("ai_provider"),
+            api_model=ai_config.get("ai_model"),
+            repository_path=repository_path,
+        )
+        print(f"[INFO] 任务 ID: {task_id}")
+
+        # 4. 初始化任务状态
         self.task_state.reset_for_new_task()
         context = ToolContext(
             repository_path=repository_path,
             conversation_history=[],
-            metadata={"ai_config": ai_config}
+            metadata={"ai_config": ai_config, "task_id": task_id}
         )
 
-        # 2. 构建初始用户消息
+        # 5. 将用户输入添加到历史
+        self.history_manager.append_message(
+            role="user",
+            content=f"<task>\n{user_input}\n</task>"
+        )
+
+        # 6. 构建初始用户消息
         user_content = [{
             "type": "text",
             "text": f"<task>\n{user_input}\n</task>"
         }]
 
-        # 3. 启动任务循环
+        # 5. 启动任务循环
         try:
             async for event in self._task_loop(user_content, context, ai_config):
                 yield event
@@ -117,6 +162,33 @@ class TaskEngine:
                 "type": "error",
                 "message": f"任务执行失败: {str(e)}"
             }
+
+        # 7. 保存对话历史和任务历史
+        finally:
+            # 保存对话历史
+            if self.history_manager:
+                success = await self.history_manager.save_history()
+                if success:
+                    stats = self.history_manager.get_stats()
+                    print(f"\n💾 对话历史已保存:")
+                    print(f"   - 总消息数: {stats['total_messages']}")
+                    print(f"   - 用户消息: {stats['user_messages']}")
+                    print(f"   - AI 消息: {stats['assistant_messages']}")
+                    print(f"   - 总 tokens: {stats['total_tokens']}")
+
+            # 更新并保存任务历史统计
+            if self.task_history_manager:
+                # 更新当前任务的统计信息
+                history_item = self.task_history_manager.get_task(task_id)
+                if history_item and self.history_manager:
+                    # 更新 token 统计
+                    stats = self.history_manager.get_stats()
+                    history_item.tokens_in = stats['total_tokens'] // 2  # 估算
+                    history_item.tokens_out = stats['total_tokens'] - history_item.tokens_in
+                    history_item.size = stats.get('task_dir_size', 0)
+
+                # 保存任务历史列表
+                await self.task_history_manager.save_history()
 
         print("\n" + "="*80)
         print("✅ 任务执行完成")
@@ -245,13 +317,35 @@ class TaskEngine:
                 "iteration": iteration
             }
 
-            # 5. 保存 AI 响应到历史
+            # 5. 保存 AI 响应到历史记录
+            if self.history_manager:
+                # 转换工具调用格式
+                tool_calls_for_history = None
+                if tool_calls_api:
+                    tool_calls_for_history = [
+                        ToolCall(
+                            id=str(uuid.uuid4()),
+                            name=tc["name"],
+                            parameters=parse_tool_call_arguments(tc["arguments"]),
+                            result=None,  # 工具结果稍后添加
+                        )
+                        for tc in tool_calls_api
+                    ]
+
+                self.history_manager.append_message(
+                    role="assistant",
+                    content=assistant_content,
+                    tool_calls=tool_calls_for_history,
+                    model=ai_config.get("ai_model"),
+                )
+
+            # 6. 兼容旧代码
             self.conversation_history.append({
                 "role": "assistant",
                 "content": assistant_content
             })
 
-            # 6. 处理工具调用
+            # 7. 处理工具调用
             if not tool_calls_api:
                 # 没有工具调用，任务可能完成
                 print(f"\n✨ 没有检测到工具调用，任务可能已完成")
@@ -299,10 +393,15 @@ class TaskEngine:
 
             # 9. 执行所有工具调用
             tool_results = []
+            has_completion_tool = False
 
             for tool_call_dict in tool_calls:
                 tool_name = tool_call_dict.get("name")
                 print(f"\n⚙️  执行工具: {tool_name}")
+
+                # 检查是否是 attempt_completion 工具
+                if tool_name == "attempt_completion":
+                    has_completion_tool = True
 
                 # 流式返回工具执行进度
                 yield {
@@ -336,6 +435,22 @@ class TaskEngine:
 
                 tool_results.append(result)
 
+                # 更新历史记录中的工具结果
+                if self.history_manager and self.history_manager.messages:
+                    last_message = self.history_manager.messages[-1]
+                    if last_message.tool_calls and len(last_message.tool_calls) >= len(tool_results):
+                        tool_call_index = len(tool_results) - 1
+                        last_message.tool_calls[tool_call_index].result = result
+
+            # 10. 检查是否调用了 attempt_completion
+            if has_completion_tool:
+                yield {
+                    "type": "completion",
+                    "result": tool_results[-1].get("data", {}),
+                    "iteration": iteration
+                }
+                return
+
             # 10. 将工具结果添加到对话历史
             formatted_results = self._format_tool_results_for_ai(tool_results)
             self.conversation_history.append({
@@ -358,9 +473,9 @@ class TaskEngine:
         ai_config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        构建消息列表（带上下文压缩）
+        构建消息列表（带上下文压缩和字符数限制）
 
-        参考 Cline 的实现，在构建消息前检查是否需要压缩
+        参考 Cline：先优化重复文件读取，再检查字符数
         """
         messages = []
 
@@ -382,19 +497,18 @@ class TaskEngine:
         # 检查是否需要压缩上下文
         model = ai_config.get("ai_model", "deepseek-chat")
 
+        # 🔥 关键修复：使用 Cline 的两阶段压缩策略
+        # 1. 先优化重复文件读取（不删除消息，只替换内容）
+        # 2. 如果仍然超限，再进行三明治截断
         if self.compression_strategy.must_compress(messages, model):
             print(f"\n⚠️  上下文即将溢出，触发压缩...")
 
-            # 压缩对话历史
+            # 使用新的压缩策略（包含文件读取优化）
             compressed = await self.compression_strategy.compress_conversation_history(
                 messages,
                 model,
                 ai_config
             )
-
-            # 更新对话历史（保留压缩后的版本）
-            # 注意：这里只更新用于 API 请求的消息，不直接修改 self.conversation_history
-            # 因为还需要保留完整历史用于其他目的
 
             print(f"✅ 上下文压缩完成")
 
@@ -402,7 +516,7 @@ class TaskEngine:
             return compressed
 
         elif self.compression_strategy.should_compress(messages, model):
-            print(f"\n⚡  上下文使用量较高，建议压缩")
+            print(f"\n⚡ 上下文使用量较高，建议压缩")
             info = self.token_counter.get_compression_info(messages, model)
             print(f"   - 当前使用: {info['estimated_tokens']} tokens ({info['usage_percentage']*100:.1f}%)")
             print(f"   - 最大允许: {info['max_allowed']} tokens")
@@ -513,6 +627,14 @@ class TaskEngine:
                     # 其他类型转换为字符串
                     else:
                         data_str = str(data)
+
+                    # 🔥 关键修复：截断过大的工具结果（参考 Cline）
+                    # GLM 模型有单次请求字符数限制（约 50,000 字符）
+                    # 这里限制每个工具结果最多 10,000 字符
+                    MAX_TOOL_RESULT_CHARS = 10_000
+                    if len(data_str) > MAX_TOOL_RESULT_CHARS:
+                        truncated_msg = f"\n\n[注意：结果已截断，原长度 {len(data_str)} 字符，显示前 {MAX_TOOL_RESULT_CHARS} 字符]"
+                        data_str = data_str[:MAX_TOOL_RESULT_CHARS] + truncated_msg
 
                     formatted.append(f"<data>")
                     formatted.append(f"```\n{data_str}\n```")

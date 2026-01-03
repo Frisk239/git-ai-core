@@ -48,7 +48,19 @@ class DiffStats:
 
 
 class WriteToFileToolHandler(BaseToolHandler):
-    """写入文件工具处理器"""
+    """
+    写入文件工具处理器 - 增强版
+
+    特性：
+    - 文件大小限制（防止写入过大文件）
+    - 写入权限检查
+    - 磁盘空间检查
+    - 详细的变更统计
+    - 更好的错误处理
+    """
+
+    # 默认文件大小限制（10MB）
+    DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024
 
     @property
     def name(self) -> str:
@@ -57,27 +69,59 @@ class WriteToFileToolHandler(BaseToolHandler):
     def get_spec(self) -> ToolSpec:
         return ToolSpec(
             name="write_to_file",
-            description="写入或创建文件，自动创建所需的目录",
+            description=(
+                "请求将内容写入指定路径的文件。如果文件存在，将被提供的内容完全覆盖。"
+                "如果文件不存在，将创建该文件。此工具会自动创建写入文件所需的任何目录。\n\n"
+                "**使用场景**:\n"
+                "1. ✅ 创建新文件（文件不存在）\n"
+                "2. ✅ 完全覆写文件（需要替换整个文件内容）\n"
+                "3. ✅ 大量修改（改动超过文件内容的 50%）\n\n"
+                "**何时使用 replace_in_file 替代此工具**:\n"
+                "- 如果只需要修改文件的小部分内容（少于 50%）\n"
+                "- 如果需要精确替换文件中的特定代码块\n"
+                "- 如果需要在文件的不同位置进行多次独立修改\n\n"
+                "**重要提示**: 必须提供文件的完整内容，不能省略任何部分。"
+            ),
             category="file",
             parameters={
                 "file_path": ToolParameter(
                     name="file_path",
                     type="string",
-                    description="要写入的文件路径（相对于仓库根目录）",
+                    description=(
+                        "要写入的文件的路径(相对于仓库根目录)。\n"
+                        "**重要规则**:\n"
+                        "- 路径必须是相对于仓库根目录的相对路径\n"
+                        "- 示例: 'backend/config.py' (创建 backend/config.py)\n"
+                        "- 示例: 'README.md' (在仓库根目录创建 README.md)\n"
+                        "- 示例: 'docs/guide.md' (创建 docs/guide.md)\n"
+                        "- 不要使用绝对路径(如 /home/user/... 或 C:\\Users\\...)\n"
+                        "- 不要使用 './' 或 '../' 等相对路径前缀\n"
+                        "- 使用正斜杠 '/' 作为路径分隔符(即使在 Windows 上)"
+                    ),
                     required=True
                 ),
                 "content": ToolParameter(
                     name="content",
                     type="string",
-                    description="要写入的内容",
+                    description=(
+                        "要写入文件的内容。必须始终提供文件的完整预期内容，"
+                        "不要有任何截断或遗漏。必须包含文件的所有部分，即使它们没有被修改。"
+                    ),
                     required=True
                 ),
                 "create_directories": ToolParameter(
                     name="create_directories",
                     type="boolean",
-                    description="是否自动创建所需的目录",
+                    description="是否自动创建所需的目录(默认为 true)",
                     required=False,
                     default=True
+                ),
+                "max_size": ToolParameter(
+                    name="max_size",
+                    type="integer",
+                    description="最大文件大小(字节,0表示不限制,默认10MB)",
+                    required=False,
+                    default=10 * 1024 * 1024  # 10MB
                 )
             }
         )
@@ -87,6 +131,7 @@ class WriteToFileToolHandler(BaseToolHandler):
         file_path = parameters["file_path"]
         content = parameters["content"]
         create_directories = parameters.get("create_directories", True)
+        max_size = parameters.get("max_size", self.DEFAULT_MAX_FILE_SIZE)
         repo_path = context.repository_path
 
         # 构建完整文件路径
@@ -96,26 +141,47 @@ class WriteToFileToolHandler(BaseToolHandler):
         if not os.path.abspath(full_path).startswith(os.path.abspath(repo_path)):
             raise ValueError(f"非法文件路径: {file_path}")
 
+        # 检查内容大小
+        content_size = len(content.encode('utf-8'))
+        if max_size > 0 and content_size > max_size:
+            raise ValueError(
+                f"内容过大 ({content_size} 字节)，超过最大限制 ({max_size} 字节)"
+            )
+
         # 如果文件已存在，读取旧内容用于对比
         old_content = None
         if os.path.exists(full_path):
             try:
-                for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
-                    try:
-                        with open(full_path, 'r', encoding=encoding) as f:
-                            old_content = f.read()
-                        break
-                    except UnicodeDecodeError:
-                        continue
+                old_content = self._read_file_with_encoding(full_path)
             except Exception as e:
                 logger.warning(f"读取现有文件失败: {e}")
+
+            # 检查文件是否可写
+            if not os.access(full_path, os.W_OK):
+                raise ValueError(f"文件不可写: {file_path}")
 
         # 创建所需目录
         if create_directories:
             directory = os.path.dirname(full_path)
             if directory and not os.path.exists(directory):
-                os.makedirs(directory, exist_ok=True)
-                logger.info(f"创建目录: {directory}")
+                try:
+                    os.makedirs(directory, exist_ok=True)
+                    logger.info(f"创建目录: {directory}")
+                except Exception as e:
+                    raise ValueError(f"创建目录失败: {directory}, 错误: {e}")
+
+        # 检查磁盘空间（至少需要文件大小的2倍）
+        try:
+            import shutil
+            disk_usage = shutil.disk_usage(os.path.dirname(full_path))
+            required_space = content_size * 2
+            if disk_usage.free < required_space:
+                raise ValueError(
+                    f"磁盘空间不足。需要: {required_space} 字节, "
+                    f"可用: {disk_usage.free} 字节"
+                )
+        except Exception as e:
+            logger.warning(f"无法检查磁盘空间: {e}")
 
         # 写入文件
         try:
@@ -124,19 +190,41 @@ class WriteToFileToolHandler(BaseToolHandler):
 
             # 获取文件统计信息
             file_stats = os.stat(full_path)
+            lines_added = content.count('\n') + 1 if content else 0
+            lines_removed = old_content.count('\n') + 1 if old_content else 0
 
             return {
                 "file_path": file_path,
                 "action": "created" if old_content is None else "updated",
                 "size": file_stats.st_size,
-                "old_size": len(old_content) if old_content else 0,
-                "new_size": len(content),
-                "relative_path": file_path
+                "old_size": len(old_content.encode('utf-8')) if old_content else 0,
+                "new_size": content_size,
+                "size_change": content_size - (len(old_content.encode('utf-8')) if old_content else 0),
+                "relative_path": file_path,
+                "stats": {
+                    "lines_added": lines_added,
+                    "lines_removed": lines_removed,
+                    "lines_changed": max(lines_added, lines_removed) if old_content else lines_added
+                }
             }
 
+        except PermissionError:
+            raise ValueError(f"权限不足，无法写入文件: {file_path}")
+        except OSError as e:
+            raise ValueError(f"写入文件失败: {file_path}, 错误: {e}")
         except Exception as e:
             logger.error(f"写入文件失败: {file_path}, 错误: {e}")
             raise
+
+    def _read_file_with_encoding(self, file_path: str) -> Optional[str]:
+        """使用多种编码读取文件"""
+        for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    return f.read()
+            except UnicodeDecodeError:
+                continue
+        return None
 
 
 class ReplaceInFileToolHandler(BaseToolHandler):
@@ -165,32 +253,51 @@ class ReplaceInFileToolHandler(BaseToolHandler):
         return ToolSpec(
             name="replace_in_file",
             description=(
-                "使用 SEARCH/REPLACE 块精确替换文件内容。"
-                "支持多个 SEARCH/REPLACE 块批量替换。"
+                "请求使用 SEARCH/REPLACE 块精确替换现有文件中的特定内容。"
+                "支持在一个或多个位置进行精确修改。适用于部分修改场景。\n\n"
+                "**使用场景**:\n"
+                "1. ✅ 修改现有文件的特定部分\n"
+                "2. ✅ 少量修改（改动少于文件内容的 50%）\n"
+                "3. ✅ 精确替换（使用 SEARCH/REPLACE 块定位）\n"
+                "4. ✅ 多处独立修改（在同一文件的不同位置）\n\n"
+                "**何时使用 write_to_file 替代此工具**:\n"
+                "- 如果需要创建新文件\n"
+                "- 如果需要完全覆写文件（改动超过 50%）\n"
+                "- 如果需要一次性替换整个文件内容\n\n"
+                "**优势**: 比 write_to_file 更安全，因为只修改需要的部分，不会意外影响其他内容。"
             ),
             category="file",
             parameters={
                 "file_path": ToolParameter(
                     name="file_path",
                     type="string",
-                    description="要修改的文件路径（相对于仓库根目录）",
+                    description=(
+                        "要修改的文件的路径(相对于仓库根目录)。\n"
+                        "**重要规则**:\n"
+                        "- 路径必须是相对于仓库根目录的相对路径\n"
+                        "- 示例: 'backend/config.py' (修改 backend/config.py)\n"
+                        "- 不要使用绝对路径或 './' '../' 前缀\n"
+                        "- 使用正斜杠 '/' 作为路径分隔符"
+                    ),
                     required=True
                 ),
                 "diff": ToolParameter(
                     name="diff",
                     type="string",
                     description=(
-                        "一个或多个 SEARCH/REPLACE 块。格式：\n"
+                        "一个或多个 SEARCH/REPLACE 块。\n\n"
+                        "**格式**:\n"
                         "------- SEARCH\n"
                         "[exact content to find]\n"
                         "=======\n"
                         "[new content to replace with]\n"
                         "+++++++ REPLACE\n\n"
-                        "关键规则：\n"
-                        "1. SEARCH 内容必须精确匹配（包括空格、缩进、换行）\n"
+                        "**关键规则**:\n"
+                        "1. SEARCH 内容必须精确匹配(包括空格、缩进、换行)\n"
                         "2. 每个 SEARCH/REPLACE 块只替换第一个匹配项\n"
-                        "3. 使用多个块进行多次更改，按文件中出现的顺序排列\n"
-                        "4. 保持块简洁，只包含需要更改的行"
+                        "3. 使用多个块进行多次更改,按文件中出现的顺序排列\n"
+                        "4. 保持块简洁,只包含需要更改的行\n"
+                        "5. 标记必须独立成行,前后各有7个以上的符号字符"
                     ),
                     required=True
                 )

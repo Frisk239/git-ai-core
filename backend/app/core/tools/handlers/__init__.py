@@ -12,6 +12,7 @@ from .git_handler import (
 from .search_handler import SearchFilesToolHandler
 from .write_handler import WriteToFileToolHandler, ReplaceInFileToolHandler
 from .code_handler import ListCodeDefinitionsToolHandler
+from .completion_handler import AttemptCompletionToolHandler
 
 
 __all__ = [
@@ -32,4 +33,7 @@ __all__ = [
 
     # 代码分析工具
     "ListCodeDefinitionsToolHandler",
+
+    # 任务完成工具
+    "AttemptCompletionToolHandler",
 ]

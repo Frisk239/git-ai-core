@@ -16,7 +16,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { api } from "../../services/api";
 import { FileViewer } from "./FileViewer";
-import { SmartChatPanel } from "./SmartChatPanel";
+import { ChatPanel } from "../session/ChatPanel";
 
 interface Project {
   info: {
@@ -723,8 +723,8 @@ export const ProjectDetail: React.FC = () => {
             {/* 对话面板 */}
             <div className="flex-1 p-6 overflow-hidden">
               <div className="h-full flex flex-col">
-                <div className="flex-1 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 rounded-xl p-6 backdrop-blur-sm border border-indigo-200/50 hover:border-indigo-300/50 transition-all duration-300 overflow-hidden h-[calc(100vh-280px)]">
-                  <SmartChatPanel
+                <div className="flex-1 bg-white rounded-xl border border-gray-200 overflow-hidden h-[calc(100vh-280px)]">
+                  <ChatPanel
                     projectPath={decodedPath}
                     fileTree={project?.file_tree}
                     onFilePreview={handleFilePreview}

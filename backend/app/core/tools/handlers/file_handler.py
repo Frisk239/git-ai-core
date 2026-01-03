@@ -54,21 +54,36 @@ class FileReadToolHandler(BaseToolHandler):
     def get_spec(self) -> ToolSpec:
         return ToolSpec(
             name="read_file",
-            description="读取 Git 仓库中的文件内容。支持大文件截断、多编码检测。",
+            description=(
+                "请求读取指定路径的文件内容。"
+                "当你需要检查你不了解内容的现有文件时使用此工具,"
+                "例如分析代码、查看文本文件或从配置文件中提取信息。"
+            ),
             category="file",
             parameters={
                 "file_path": ToolParameter(
                     name="file_path",
                     type="string",
-                    description="要读取的文件路径（相对于仓库根目录）",
+                    description=(
+                        "要读取的文件的路径(相对于仓库根目录)。\n"
+                        "**重要规则**:\n"
+                        "- 路径必须是相对于仓库根目录的相对路径\n"
+                        "- 示例: 'backend/config.py' (读取 backend/config.py)\n"
+                        "- 示例: 'README.md' (读取根目录的 README.md)\n"
+                        "- 不要使用绝对路径或 './' '../' 前缀\n"
+                        "- 使用正斜杠 '/' 作为路径分隔符"
+                    ),
                     required=True
                 ),
                 "max_size": ToolParameter(
                     name="max_size",
                     type="integer",
-                    description="最大读取字节数（0表示不限制，默认100KB）",
+                    description=(
+                        "最大读取字节数(0表示不限制,默认20MB)。\n"
+                        "**注意**: 如果文件超过限制,内容将被截断并显示警告信息。"
+                    ),
                     required=False,
-                    default=100_000
+                    default=20 * 1024 * 1024  # 20MB (与 Cline 一致)
                 )
             }
         )
@@ -76,7 +91,7 @@ class FileReadToolHandler(BaseToolHandler):
     async def execute(self, parameters: Any, context: ToolContext) -> Any:
         """执行文件读取 - 优化版本"""
         file_path = parameters["file_path"]
-        max_size = parameters.get("max_size", 100_000)
+        max_size = parameters.get("max_size", 20 * 1024 * 1024)  # 默认20MB
         repo_path = context.repository_path
 
         # 构建完整文件路径
@@ -126,6 +141,14 @@ class FileReadToolHandler(BaseToolHandler):
             if content is None:
                 raise ValueError(f"无法解码文件: {file_path}")
 
+            # 如果被截断,添加警告信息
+            if is_truncated:
+                truncation_warning = (
+                    f"\n\n[警告] 文件已截断: 读取了 {max_size} 字节,"
+                    f"总大小 {file_size} 字节。如需查看完整内容,请增加 max_size 参数。"
+                )
+                content += truncation_warning
+
             return {
                 "file_path": file_path,
                 "content": content,
@@ -151,13 +174,26 @@ class FileListToolHandler(BaseToolHandler):
     def get_spec(self) -> ToolSpec:
         return ToolSpec(
             name="list_files",
-            description="列出目录中的文件和子目录。支持深度限制、缓存、性能统计。",
+            description=(
+                "请求列出指定目录中的文件和子目录。"
+                "如果 recursive 为 true,将递归列出所有文件和目录。"
+                "如果 recursive 为 false 或未提供,将仅列出顶层内容。"
+            ),
             category="file",
             parameters={
                 "directory": ToolParameter(
                     name="directory",
                     type="string",
-                    description="要列出的目录路径（相对于仓库根目录，空字符串表示根目录）",
+                    description=(
+                        "要列出内容的目录路径(相对于仓库根目录)。\n"
+                        "**重要规则**:\n"
+                        "- 路径必须是相对于仓库根目录的相对路径\n"
+                        "- 示例: 'backend' (列出 backend 目录)\n"
+                        "- 示例: '' 或 '.' (列出根目录)\n"
+                        "- 示例: 'docs/api' (列出 docs/api 目录)\n"
+                        "- 不要使用绝对路径或 './' '../' 前缀\n"
+                        "- 使用正斜杠 '/' 作为路径分隔符"
+                    ),
                     required=False,
                     default=""
                 ),

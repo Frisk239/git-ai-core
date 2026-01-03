@@ -290,13 +290,61 @@ export const api = {
   },
 
   // 记录用户行为
-  async recordGitHubAction(repoFullName: string, actionType: string, 
+  async recordGitHubAction(repoFullName: string, actionType: string,
                          searchQuery?: string, durationSeconds?: number) {
     const response = await apiClient.post('/api/github/record-action', {
       repo_full_name: repoFullName,
       action_type: actionType,
       search_query: searchQuery,
       duration_seconds: durationSeconds
+    })
+    return response.data
+  },
+
+  // ============================================================================
+  // 会话管理功能
+  // ============================================================================
+
+  /**
+   * 获取任务/会话列表
+   */
+  async getTaskList(params: {
+    repository_path: string;
+    search_query?: string;
+    favorites_only?: boolean;
+    sort_by?: 'newest' | 'oldest' | 'cost';
+    limit?: number;
+  }) {
+    const response = await apiClient.get('/api/sessions/list', { params })
+    return response.data
+  },
+
+  /**
+   * 加载任务详情(用于恢复会话)
+   */
+  async loadTask(taskId: string, repositoryPath: string) {
+    const response = await apiClient.get(`/api/sessions/load/${taskId}`, {
+      params: { repository_path: repositoryPath }
+    })
+    return response.data
+  },
+
+  /**
+   * 切换任务收藏状态
+   */
+  async toggleTaskFavorite(taskId: string, repositoryPath: string) {
+    const response = await apiClient.post(`/api/sessions/toggle-favorite/${taskId}`, null, {
+      params: { repository_path: repositoryPath }
+    })
+    return response.data
+  },
+
+  /**
+   * 删除任务
+   */
+  async deleteTask(taskId: string, repositoryPath: string) {
+    const response = await apiClient.post(`/api/sessions/delete/${taskId}`, null, {
+      params: { repository_path: repositoryPath }
     })
     return response.data
   }

@@ -167,6 +167,7 @@ class ToolCoordinator:
         from .handlers.search_handler import SearchFilesToolHandler
         from .handlers.write_handler import WriteToFileToolHandler, ReplaceInFileToolHandler
         from .handlers.code_handler import ListCodeDefinitionsToolHandler
+        from .handlers.completion_handler import AttemptCompletionToolHandler
         from .handlers.mcp_handler import (
             UseMcpToolHandler,
             AccessMcpResourceHandler,
@@ -190,6 +191,9 @@ class ToolCoordinator:
 
         # 注册代码分析工具
         self.register(ListCodeDefinitionsToolHandler())
+
+        # 注册任务完成工具(关键!)
+        self.register(AttemptCompletionToolHandler())
 
         # 注册 MCP 工具
         self.register(UseMcpToolHandler())

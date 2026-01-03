@@ -15,7 +15,7 @@ import "github-markdown-css";
 import hljs from "highlight.js";
 // 将不存在的github-light.css改为github.css
 import "highlight.js/styles/github.css";
-import { SmartChatPanel } from "./SmartChatPanel";
+import { ChatPanel } from "../session/ChatPanel";
 
 type IStandaloneCodeEditor = editor.IStandaloneCodeEditor;
 
@@ -316,7 +316,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
         {/* 右侧：AI对话区 */}
         <div className="w-96 flex flex-col bg-gray-50 m-2">
           <div className="bg-white rounded-lg shadow-sm h-full border border-gray-200 overflow-hidden flex flex-col">
-            <SmartChatPanel
+            <ChatPanel
               projectPath={projectRoot}
               fileTree={{}}
               onFilePreview={(filePath, content) => {

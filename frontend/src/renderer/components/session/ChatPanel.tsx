@@ -13,8 +13,6 @@ import {
   ClockIcon,
   SparklesIcon,
   PlusIcon,
-  XMarkIcon,
-  HistoryIcon,
 } from '@heroicons/react/24/outline';
 import { api } from '../../services/api';
 import ReactMarkdown from 'react-markdown';
@@ -130,8 +128,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     setMessages((prev) => [...prev, assistantMessage]);
 
     try {
-      await api.smartChatV2(messageToSend, projectPath, (event: any) => {
-        switch (event.type) {
+      await api.smartChatV2(
+        messageToSend,
+        projectPath,
+        currentTaskId ?? undefined,  // 传递当前任务 ID 以支持记忆功能
+        (event: any) => {
+          // 处理任务开始事件(保存 task_id)
+          if (event.type === 'task_started') {
+            setCurrentTaskId(event.task_id);
+            console.log(`任务 ${event.is_new_task ? '创建' : '继续'}: ${event.task_id}`);
+            return;
+          }
+
+          switch (event.type) {
           case 'api_response':
             setMessages((prev) =>
               prev.map((msg) =>
@@ -194,7 +203,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             setIsLoading(false);
             break;
         }
-      });
+        }
+      );
     } catch (error) {
       console.error('发送消息失败:', error);
       toast.error('发送消息失败');

@@ -172,7 +172,7 @@ export const api = {
   },
 
   // 新的智能对话 - 使用工具调用系统（支持流式响应）
-  async smartChatV2(message: string, projectPath: string, onEvent?: (event: any) => void) {
+  async smartChatV2(message: string, projectPath: string, taskId?: string, onEvent?: (event: any) => void) {
     const response = await fetch(`${API_BASE_URL}/api/chat/smart-chat-v2`, {
       method: 'POST',
       headers: {
@@ -180,7 +180,8 @@ export const api = {
       },
       body: JSON.stringify({
         message,
-        repository_path: projectPath
+        repository_path: projectPath,
+        task_id: taskId  // 用于继续现有任务(实现记忆功能)
       })
     })
 

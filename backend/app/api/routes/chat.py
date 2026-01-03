@@ -29,6 +29,7 @@ class SmartChatRequest(BaseModel):
     message: str
     repository_path: str
     conversation_id: Optional[int] = None
+    task_id: Optional[str] = None  # 用于继续现有任务(实现记忆功能)
 
 @router.get("/conversations")
 async def get_conversations(db: Session = Depends(get_chat_db)):
@@ -200,7 +201,8 @@ async def smart_chat_v2(request: SmartChatRequest):
             async for event in task_engine.execute_task(
                 user_input=request.message,
                 repository_path=request.repository_path,
-                ai_config=ai_config
+                ai_config=ai_config,
+                task_id=request.task_id  # 传递 task_id 以支持记忆功能
             ):
                 # 将事件转换为 SSE 格式
                 event_data = json.dumps(event, ensure_ascii=False, default=str)

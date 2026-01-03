@@ -72,7 +72,8 @@ class TaskEngine:
         self,
         user_input: str,
         repository_path: str,
-        ai_config: Dict[str, Any]
+        ai_config: Dict[str, Any],
+        task_id: Optional[str] = None,  # 支持继续现有任务
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         执行任务 - 主入口点
@@ -81,15 +82,21 @@ class TaskEngine:
             user_input: 用户输入
             repository_path: Git 仓库路径
             ai_config: AI 配置
+            task_id: 可选的任务 ID,用于继续现有任务(实现记忆功能)
 
         Yields:
             任务进度信息（用于流式响应）
         """
-        # 生成任务 ID
-        task_id = str(uuid.uuid4())[:8]
+        # 如果没有提供 task_id,生成新的
+        is_new_task = task_id is None
+        if is_new_task:
+            task_id = str(uuid.uuid4())[:8]
 
         print("\n" + "="*80)
-        print(f"🚀 开始执行任务")
+        if is_new_task:
+            print(f"🚀 开始执行任务")
+        else:
+            print(f"🔄 继续任务 (记忆模式)")
         print("="*80)
         print(f"📝 用户输入: {user_input}")
         print(f"📁 仓库路径: {repository_path}")
@@ -97,7 +104,7 @@ class TaskEngine:
         print(f"🤖 AI 配置: {ai_config.get('ai_provider')} - {ai_config.get('ai_model')}")
         print("="*80 + "\n")
 
-        logger.info(f"=== 开始任务 (ID: {task_id}) ===")
+        logger.info(f"=== {'开始新任务' if is_new_task else '继续任务'} (ID: {task_id}) ===")
         logger.info(f"用户输入: {user_input[:100]}...")
         logger.info(f"仓库路径: {repository_path}")
 
@@ -117,6 +124,15 @@ class TaskEngine:
         loaded_history = await self.history_manager.load_history()
         if loaded_history:
             print(f"[INFO] 已加载任务历史: {len(self.history_manager.messages)} 条消息")
+            # 🔥 关键修复：将历史消息复制到 conversation_history，这样 _build_messages 才能使用
+            self.conversation_history = [
+                {
+                    "role": msg.role,
+                    "content": msg.content
+                }
+                for msg in self.history_manager.messages
+            ]
+            print(f"[INFO] 已将 {len(self.conversation_history)} 条历史消息加载到上下文")
 
         # 3. 添加或更新任务到历史列表
         task_description = user_input[:100] + "..." if len(user_input) > 100 else user_input
@@ -142,6 +158,11 @@ class TaskEngine:
             role="user",
             content=f"<task>\n{user_input}\n</task>"
         )
+        # 🔥 同时更新 conversation_history（用于后续的 API 调用）
+        self.conversation_history.append({
+            "role": "user",
+            "content": f"<task>\n{user_input}\n</task>"
+        })
 
         # 6. 构建初始用户消息
         user_content = [{
@@ -151,6 +172,13 @@ class TaskEngine:
 
         # 5. 启动任务循环
         try:
+            # 首先发送任务 ID 事件(让前端知道当前任务 ID)
+            yield {
+                "type": "task_started",
+                "task_id": task_id,
+                "is_new_task": is_new_task
+            }
+
             async for event in self._task_loop(user_content, context, ai_config):
                 yield event
         except Exception as e:

@@ -371,8 +371,16 @@ class ListMcpServersHandler(BaseToolHandler):
         try:
             mcp_manager = get_mcp_server_manager()
 
+            # 🔥 调试日志：记录配置文件读取
+            logger.info(f"🔧 list_mcp_servers: 开始读取服务器配置")
+
             # 获取所有服务器配置
             servers_config = mcp_manager.list_servers()
+
+            # 🔥 调试日志：显示每个服务器的 enabled 配置
+            for server_name, config in servers_config.items():
+                enabled = config.get("enabled", True)
+                logger.info(f"🔧 list_mcp_servers 配置: {server_name} -> enabled={enabled}, config={config}")
 
             # 构建服务器列表
             servers_info = []
@@ -380,6 +388,9 @@ class ListMcpServersHandler(BaseToolHandler):
             for server_name, config in servers_config.items():
                 # 获取服务器状态
                 status_info = await mcp_manager.get_server_status(server_name)
+
+                # 🔥 调试日志：显示运行时状态
+                logger.info(f"🔧 list_mcp_servers 运行时: {server_name} -> status={status_info.get('status', 'unknown')}, connected={status_info.get('connected', False)}")
 
                 server_info = {
                     "name": server_name,

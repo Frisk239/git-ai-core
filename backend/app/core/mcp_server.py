@@ -106,6 +106,9 @@ class MCPServerManager:
     def update_server(self, name: str, config: Dict[str, Any]) -> bool:
         """更新服务器配置"""
         try:
+            # 🔥 调试日志：记录更新请求
+            logger.info(f"🔧🔧 MCPManager.update_server 被调用: {name}, config={config}")
+
             if name in self.servers:
                 # 确保配置包含必要的字段
                 config.setdefault('enabled', True)
@@ -119,12 +122,18 @@ class MCPServerManager:
                 self._save_servers()
                 logger.info(f"Updated MCP server: {name}")
 
+                # 🔥 调试日志：验证内存中的配置已更新
+                logger.info(f"🔧 MCPManager.update_server: 内存中 {name} enabled={self.servers[name].get('enabled')}")
+
                 # 如果服务器正在运行且配置改变，需要重启
                 if name in self._active_clients:
+                    logger.warning(f"⚠️ 服务器 {name} 正在运行，将触发重启")
                     asyncio.create_task(self.restart_server(name))
 
                 return True
-            return False
+            else:
+                logger.error(f"❌ 服务器 {name} 不在 self.servers 中")
+                return False
         except Exception as e:
             logger.error(f"Failed to update server {name}: {e}")
             return False
@@ -143,6 +152,9 @@ class MCPServerManager:
         - 运行时启动：由前端触发，用户明确要启动，不需要再检查 enabled
         """
         try:
+            # 🔥 调试日志：记录启动请求
+            logger.info(f"🔧🔧 MCPManager.start_server 被调用: {name}")
+
             # 检查是否已经在运行
             if name in self._active_clients:
                 logger.warning(f"Server {name} is already running")
@@ -153,6 +165,9 @@ class MCPServerManager:
             if not config:
                 logger.error(f"Server configuration not found: {name}")
                 return False
+
+            # 🔥 调试日志：显示配置
+            logger.info(f"🔧 MCPManager.start_server: {name} config={config}")
 
             # 🔥 不检查 enabled - 让调用者决定是否启动
             # 应用启动时由 _initialize_mcp_servers 检查

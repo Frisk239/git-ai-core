@@ -251,19 +251,22 @@ class MCPServerToggleRequest(BaseModel):
 async def toggle_server(server_name: str, request: MCPServerToggleRequest) -> Dict[str, Any]:
     """切换MCP服务器启用/禁用状态（前端使用）"""
     try:
+        # 🔥 调试日志：记录请求
+        logger.info(f"🔧🔧 toggle_server 被调用: {server_name}, enabled={request.enabled}")
+
         mcp_manager = get_mcp_manager()
 
-        # 🔥 关键修复：先更新配置文件中的 enabled 字段（持久化前端状态）
+        # 🔥 调试日志：读取当前配置
         config = mcp_manager.get_server(server_name)
         if config:
-            config["enabled"] = request.enabled
-            mcp_manager.update_server(server_name, config)
-            logger.info(f"✅ 已更新配置文件: {server_name} enabled={request.enabled}")
+            old_enabled = config.get("enabled", True)
+            logger.info(f"🔧 toggle_server: {server_name} 当前 enabled={old_enabled}, 新值={request.enabled}")
         else:
             logger.error(f"❌ 服务器配置不存在: {server_name}")
             raise HTTPException(status_code=404, detail=f"服务器 {server_name} 不存在")
 
-        # 🔥 然后处理启动和停止
+        # 🔥 关键修复：先处理启动和停止，再更新配置文件
+        # 这样可以避免 update_server 看到服务器在 _active_clients 中而触发自动重启
         if request.enabled:
             # 启动服务器
             logger.info(f"🚀 启动服务器: {server_name}")
@@ -282,17 +285,35 @@ async def toggle_server(server_name: str, request: MCPServerToggleRequest) -> Di
                 return {
                     "success": False,
                     "message": f"服务器 {server_name} 启动失败",
-                    "enabled": config.get("enabled", False)
+                    "enabled": old_enabled  # 保持原状态
                 }
         else:
             # 停止服务器
+            logger.info(f"🛑 停止服务器: {server_name}")
             status = await mcp_manager.get_server_status(server_name)
+            logger.info(f"🔧 toggle_server: {server_name} 当前状态 connected={status.get('connected', False)}")
+
             if status.get("connected"):
                 await mcp_manager.stop_server(server_name)
                 logger.info(f"✅ 服务器 {server_name} 已停止")
 
                 # 🔥 关键：停止后，重新注册 MCP 工具（移除已停止的工具）
                 await _refresh_mcp_tools()
+            else:
+                logger.info(f"ℹ️ 服务器 {server_name} 未运行，无需停止")
+
+        # 🔥 然后更新配置文件中的 enabled 字段（持久化前端状态）
+        # 此时服务器已经停止（如果是禁用操作），不会触发自动重启
+        config["enabled"] = request.enabled
+        mcp_manager.update_server(server_name, config)
+        logger.info(f"✅ 已更新配置文件: {server_name} enabled={request.enabled}")
+
+        # 🔥 调试日志：验证更新是否成功
+        updated_config = mcp_manager.get_server(server_name)
+        updated_enabled = updated_config.get("enabled", True) if updated_config else None
+        logger.info(f"🔧 toggle_server: 验证更新 - {server_name} enabled={updated_enabled}")
+
+        logger.info(f"✅ toggle_server 完成: {server_name} -> enabled={request.enabled}")
 
         return {
             "success": True,
